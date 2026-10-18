@@ -5,3 +5,4 @@
 /.superpowers/
 /.env
 /.tools/
+.claude/worktrees
