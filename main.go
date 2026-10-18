@@ -1,0 +1,207 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+)
+
+const usage = `vid2gif - turn a segment of an online video into a GIF, WebP, MP4 or MOV
+
+Usage:
+  vid2gif clip <url> --start T [flags]    the URL must come first
+  vid2gif deps install                    download the pinned yt-dlp and ffmpeg into ./bin (run once)
+  vid2gif help                            show this text
+
+Example:
+  vid2gif deps install
+  vid2gif clip "https://www.youtube.com/watch?v=jNQXAC9IJRQ" --start 1:23 --end 1:30 --format gif,mp4 --out ./gifs
+
+Times are SS, MM:SS or HH:MM:SS (decimals allowed on the last part).
+`
+
+type usageError string
+
+func (e usageError) Error() string { return string(e) }
+
+// newClipFlags defines the clip flags. Its Usage is the full help text
+// (overview, example, then every flag with its default); the flag package
+// prints it on -h and on flag parse errors, and `vid2gif help` calls it too,
+// so the flag list can never drift from the code.
+func newClipFlags(o *clipOpts, start, end, formats *string) *flag.FlagSet {
+	fs := flag.NewFlagSet("clip", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(start, "start", "", "start time: SS, MM:SS or HH:MM:SS (required)")
+	fs.StringVar(end, "end", "", "end time (default: start + 5s)")
+	fs.StringVar(formats, "format", "gif", "comma-separated: gif,webp,mp4,mov")
+	fs.StringVar(&o.OutDir, "out", "./gifs", "output directory (created if missing)")
+	fs.StringVar(&o.Name, "name", "", "file name without extension (default <title>_<start>-<end>)")
+	fs.StringVar(&o.Quality, "quality", "medium", "low, medium or high")
+	fs.BoolVar(&o.Overwrite, "overwrite", false, "replace existing output files (default: skip them)")
+	fs.BoolVar(&o.NoPin, "no-pin", false, "use yt-dlp and ffmpeg from PATH without version checks")
+	fs.Usage = func() {
+		fmt.Fprint(fs.Output(), usage, "\nFlags for clip:\n")
+		fs.PrintDefaults()
+	}
+	return fs
+}
+
+// parseClipArgs expects `<url> [flags]`.
+func parseClipArgs(args []string) (clipOpts, error) {
+	if len(args) == 0 {
+		return clipOpts{}, usageError("missing <url>")
+	}
+	var o clipOpts
+	var start, end, formats string
+	fs := newClipFlags(&o, &start, &end, &formats)
+	rest := args
+	if !strings.HasPrefix(args[0], "-") {
+		o.URL, rest = args[0], args[1:]
+	}
+	if err := fs.Parse(rest); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return o, err
+		}
+		return o, usageError(err.Error())
+	}
+	if o.URL == "" {
+		return o, usageError("the URL must come first: vid2gif clip <url> --start T")
+	}
+	if fs.NArg() > 0 {
+		return o, usageError("unexpected argument " + fs.Arg(0))
+	}
+	if start == "" {
+		return o, usageError("--start is required")
+	}
+	var err error
+	if o.Start, err = parseTimestamp(start); err != nil {
+		return o, usageError("--start: " + err.Error())
+	}
+	if end == "" {
+		o.End = o.Start + 5
+	} else {
+		if o.End, err = parseTimestamp(end); err != nil {
+			return o, usageError("--end: " + err.Error())
+		}
+		if o.End <= o.Start {
+			return o, usageError("--end must be after --start")
+		}
+	}
+	if o.Formats, err = parseFormats(formats); err != nil {
+		return o, usageError("--format: " + err.Error())
+	}
+	if _, ok := presets[o.Quality]; !ok {
+		return o, usageError(fmt.Sprintf("unknown --quality %q (choose low, medium or high)", o.Quality))
+	}
+	if strings.ContainsAny(o.Name, `/\`) {
+		return o, usageError("--name must not contain path separators; use --out for the directory")
+	}
+	return o, nil
+}
+
+// baseDir is where deps.json and bin/ live: next to the executable, or the
+// current directory when the executable is elsewhere (e.g. `go run`).
+func baseDir() string {
+	if exe, err := os.Executable(); err == nil {
+		d := filepath.Dir(exe)
+		if _, err := os.Stat(filepath.Join(d, "deps.json")); err == nil {
+			return d
+		}
+	}
+	wd, _ := os.Getwd()
+	return wd
+}
+
+func runDepsInstall(base string, stdout, stderr io.Writer) int {
+	d, err := loadDeps(filepath.Join(base, "deps.json"))
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
+	}
+	for _, name := range []string{"yt-dlp", "ffmpeg"} {
+		t, ok := d[name]
+		if !ok {
+			fmt.Fprintf(stderr, "error: deps.json has no entry for %s\n", name)
+			return 1
+		}
+		if err := installTool(name, t, filepath.Join(base, "bin"), stdout); err != nil {
+			fmt.Fprintf(stderr, "error: %s: %v\n", name, err)
+			return 1
+		}
+	}
+	return 0
+}
+
+func runClipCmd(args []string, stdout, stderr io.Writer) int {
+	o, err := parseClipArgs(args)
+	if errors.Is(err, flag.ErrHelp) {
+		return 0 // the flag package already printed the flag list
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		fmt.Fprintln(stderr, "run `vid2gif clip -h` for usage and an example")
+		return 2
+	}
+	base := baseDir()
+	d := deps{}
+	if !o.NoPin {
+		if d, err = loadDeps(filepath.Join(base, "deps.json")); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 1
+		}
+	}
+	r := newResolver(base)
+	ytdlp, err := r.resolve("yt-dlp", d["yt-dlp"], o.NoPin)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
+	}
+	ffmpeg, err := r.resolve("ffmpeg", d["ffmpeg"], o.NoPin)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
+	}
+	hint := ""
+	if !o.NoPin {
+		hint = fmt.Sprintf("yt-dlp is pinned at %s. If this is a site-extraction error, bump the pin in deps.json or retry with --no-pin.", d["yt-dlp"].Version)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := newPipeline(ytdlp, ffmpeg, hint, stdout).run(ctx, o); err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
+	}
+	return 0
+}
+
+func realMain(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	switch args[0] {
+	case "clip":
+		return runClipCmd(args[1:], stdout, stderr)
+	case "deps":
+		if len(args) == 2 && args[1] == "install" {
+			return runDepsInstall(baseDir(), stdout, stderr)
+		}
+		fmt.Fprint(stderr, usage)
+		return 2
+	case "help", "-h", "--help":
+		fs := newClipFlags(&clipOpts{}, new(string), new(string), new(string))
+		fs.SetOutput(stdout)
+		fs.Usage()
+		return 0
+	}
+	fmt.Fprintf(stderr, "error: unknown command %q\n\n%s", args[0], usage)
+	return 2
+}
+
+func main() { os.Exit(realMain(os.Args[1:], os.Stdout, os.Stderr)) }
