@@ -113,7 +113,10 @@ func TestResolveMismatch(t *testing.T) {
 
 func TestResolveNoPinSkipsVersionCheck(t *testing.T) {
 	r := resolverWith(t.TempDir(), "/usr/bin/yt-dlp", "")
-	r.version = func(string, string) (string, error) { t.Fatal("version must not be checked with --no-pin"); return "", nil }
+	r.version = func(string, string) (string, error) {
+		t.Fatal("version must not be checked with --no-pin")
+		return "", nil
+	}
 	got, err := r.resolve("yt-dlp", tool{}, true)
 	if err != nil || got != "/usr/bin/yt-dlp" {
 		t.Errorf("got %q, %v", got, err)

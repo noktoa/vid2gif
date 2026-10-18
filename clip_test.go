@@ -136,7 +136,10 @@ func TestRunOverwriteReplaces(t *testing.T) {
 
 func TestRunNameGivenSkipsTitleLookup(t *testing.T) {
 	p, _ := fakePipeline(io.Discard)
-	p.title = func(context.Context, string) (string, error) { t.Fatal("title must not be fetched when --name is set"); return "", nil }
+	p.title = func(context.Context, string) (string, error) {
+		t.Fatal("title must not be fetched when --name is set")
+		return "", nil
+	}
 	o := baseOpts(t.TempDir(), "gif")
 	o.Name = "demo"
 	if err := p.run(context.Background(), o); err != nil {
