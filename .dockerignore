@@ -5,3 +5,5 @@ docs
 .github
 .superpowers
 *.exe
+.env
+.tools

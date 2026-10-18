@@ -114,7 +114,7 @@ docker run --rm vid2gif-test
 
 Use `--platform linux/arm64` for arm64. It runs under emulation and is slow.
 
-To keep the downloaded tools between native runs, set `VID2GIF_BIN` to a folder before running the integration test; tools that already match their pins aren't downloaded again.
+To keep the downloaded tools between native runs, set `VID2GIF_BIN` to a folder before running the integration test; tools that already match their pins aren't downloaded again. You can put it in a `.env` file at the repo root instead (`VID2GIF_BIN=.tools`; relative paths start from the repo root). A variable set in your real environment takes priority over `.env`. Only the integration test reads `.env`; the `vid2gif` program doesn't.
 
 On GitHub, `.github/workflows/ci.yml` runs the unit tests on every push. `integration.yml` runs the integration test on Windows, Linux amd64 and Linux arm64 every week and whenever `deps.json` or the code that uses it changes. The pinned tools are about 250 MB, so they're cached: the Linux jobs reuse Docker layers (`build/Dockerfile.test` puts the tools in their own layer, which only rebuilds when `deps.json` or the installer changes), and the Windows job caches the tools folder. The weekly run skips those caches so it still catches a pinned download that has been removed upstream. Neither workflow contacts YouTube; the integration test only downloads the pinned tools from GitHub releases.
 

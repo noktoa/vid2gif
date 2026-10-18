@@ -14,10 +14,18 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/joho/godotenv"
 	"vid2gif/internal/deps"
 	"vid2gif/internal/encode"
 	"vid2gif/internal/naming"
 )
+
+// TestMain loads an optional .env file from the repo root. Variables already
+// set in the real environment win, and a missing file is fine.
+func TestMain(m *testing.M) {
+	_ = godotenv.Load("../../.env")
+	os.Exit(m.Run())
+}
 
 func checkSignature(t *testing.T, path, format string) {
 	t.Helper()
@@ -74,6 +82,8 @@ func TestRealToolsEncode(t *testing.T) {
 	binDir := os.Getenv("VID2GIF_BIN")
 	if binDir == "" {
 		binDir = t.TempDir()
+	} else if !filepath.IsAbs(binDir) {
+		binDir = filepath.Join("..", "..", binDir) // relative paths are from the repo root
 	}
 	for _, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
 		if err := deps.Install(name, d[name], binDir, os.Stdout); err != nil {

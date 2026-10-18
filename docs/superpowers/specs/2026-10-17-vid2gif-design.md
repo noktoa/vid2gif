@@ -152,7 +152,7 @@ A mismatch exits `1` with the pinned version, the version found, and "run `vid2g
 
 ### Archive handling and the one dependency
 
-Go's standard library has no xz decompressor and the Linux ffmpeg builds ship only as `.tar.xz`. The tool therefore uses **`github.com/ulikunitz/xz`** (pure Go, no cgo) — the only non-standard-library dependency. The alternative of shelling out to `tar -xJf` was rejected because minimal Linux images often lack `xz`.
+Go's standard library has no xz decompressor and the Linux ffmpeg builds ship only as `.tar.xz`. The tool therefore uses **`github.com/ulikunitz/xz`** (pure Go, no cgo) — the only non-standard-library dependency of the shipped binary. The integration test also uses `github.com/joho/godotenv` to read an optional `.env` file; it is not part of the binary. The alternative of shelling out to `tar -xJf` was rejected because minimal Linux images often lack `xz`.
 
 ## Error handling summary
 
