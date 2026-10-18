@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -112,5 +113,26 @@ func TestExtractBinaryTarXz(t *testing.T) {
 	}
 	if err := extractBinary(arc, "rar", "ffmpeg", dest); err == nil {
 		t.Error("expected error for an unknown archive kind")
+	}
+}
+
+// A failed install (here: a SHA-256 mismatch) must leave a previously
+// installed binary untouched.
+func TestInstallToolFailureKeepsExistingBinary(t *testing.T) {
+	binDir := t.TempDir()
+	dest := filepath.Join(binDir, exeName("yt-dlp"))
+	os.WriteFile(dest, []byte("old binary"), 0o755)
+	tl := tool{Version: "1", Platforms: map[string]asset{
+		platformKey(): {URL: serve(t, []byte("tampered")), SHA256: sha([]byte("original")), Archive: "none"},
+	}}
+	if err := installTool("yt-dlp", tl, binDir, io.Discard); err == nil {
+		t.Fatal("expected a sha256 error")
+	}
+	if got, _ := os.ReadFile(dest); string(got) != "old binary" {
+		t.Errorf("existing binary was damaged: %q", got)
+	}
+	entries, _ := os.ReadDir(binDir)
+	if len(entries) != 1 {
+		t.Errorf("temp files left in bin: %v", entries)
 	}
 }

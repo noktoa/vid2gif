@@ -7,19 +7,31 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ulikunitz/xz"
 )
 
+// httpClient bounds connecting and waiting for headers, so a dead network
+// fails instead of hanging. There is deliberately no total timeout because
+// the downloads are around 100 MB.
+var httpClient = &http.Client{Transport: &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
+	TLSHandshakeTimeout:   15 * time.Second,
+	ResponseHeaderTimeout: 30 * time.Second,
+}}
+
 // downloadVerified streams url to dest while hashing it. dest is removed on
 // any failure, including a SHA-256 mismatch.
 func downloadVerified(url, wantSHA, dest string) error {
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return err
 	}
@@ -130,11 +142,15 @@ func installTool(name string, t tool, binDir string, log io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(log, "installing %s %s ...\n", name, t.Version)
+	// Stage next to dest and rename only after the pin checks out, so a failed
+	// or interrupted install never damages a working binary.
+	stage := dest + ".new"
+	defer os.Remove(stage)
 	if a.Archive == "none" {
-		if err := downloadVerified(a.URL, a.SHA256, dest); err != nil {
+		if err := downloadVerified(a.URL, a.SHA256, stage); err != nil {
 			return err
 		}
-		if err := os.Chmod(dest, 0o755); err != nil {
+		if err := os.Chmod(stage, 0o755); err != nil {
 			return err
 		}
 	} else {
@@ -143,16 +159,19 @@ func installTool(name string, t tool, binDir string, log io.Writer) error {
 			return err
 		}
 		defer os.Remove(tmp)
-		if err := extractBinary(tmp, a.Archive, exe, dest); err != nil {
+		if err := extractBinary(tmp, a.Archive, exe, stage); err != nil {
 			return err
 		}
 	}
-	out, err := runVersion(dest, name)
+	out, err := runVersion(stage, name)
 	if err != nil {
-		return fmt.Errorf("%s: running version check: %w", dest, err)
+		return fmt.Errorf("%s: running version check: %w", stage, err)
 	}
 	if !versionMatches(name, t.Version, out) {
 		return fmt.Errorf("installed %s reports %q, expected %s", name, firstLine(out), t.Version)
+	}
+	if err := os.Rename(stage, dest); err != nil {
+		return err
 	}
 	fmt.Fprintf(log, "installed %s\n", dest)
 	return nil

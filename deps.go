@@ -106,7 +106,7 @@ func (r resolver) resolve(name string, t tool, noPin bool) (string, error) {
 	}
 	out, err := r.version(path, name)
 	if err != nil {
-		return "", fmt.Errorf("%s: running version check: %w", path, err)
+		return "", fmt.Errorf("%s: running version check: %w; run `vid2gif deps install`", path, err)
 	}
 	if !versionMatches(name, t.Version, out) {
 		return "", fmt.Errorf("%s version mismatch: pinned %s, found %s at %s; run `vid2gif deps install`",
