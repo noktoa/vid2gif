@@ -14,7 +14,7 @@ func TestParseClipArgsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.URL != "https://x/y" || o.Start != 83 || o.End != 88 || !slices.Equal(o.Formats, []string{"gif"}) ||
+	if o.URL != "https://x/y" || o.Start != 83 || o.End != 0 || !slices.Equal(o.Formats, []string{"gif"}) ||
 		o.OutDir != "./gifs" || o.Quality != "medium" || o.Name != "" || o.Overwrite || o.NoPin {
 		t.Errorf("unexpected defaults: %+v", o)
 	}

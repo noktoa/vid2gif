@@ -21,7 +21,7 @@ That writes `gifs/<video title>_2-5.gif`. Keep `deps.json` in the same folder as
 ## Examples
 
 ```
-# A 5-second GIF starting at 1:23 (no --end means start + 5 seconds)
+# A GIF from 1:23 to the end of the video (no --end means until the end)
 vid2gif clip "https://example.com/watch?v=abc" --start 1:23
 
 # A GIF and an MP4 of the same moment, in a folder of your choice, with your own file name
@@ -43,15 +43,17 @@ Run `vid2gif help` to see all of this in the terminal.
 | Flag | Default | What it does |
 |---|---|---|
 | `--start T` | required | Where the clip begins. |
-| `--end T` | start + 5 seconds | Where the clip ends. Must be after the start. |
+| `--end T` | the end of the video | Where the clip ends. Must be after the start. |
 | `--format LIST` | `gif` | Any of `gif`, `webp`, `mp4`, `mov`, separated by commas. |
 | `--out DIR` | `./gifs` | Where the files are written. The folder is created if it doesn't exist. |
-| `--name BASE` | `<video title>_<start>-<end>` | File name without the extension. Each format adds its own. |
+| `--name BASE` | `<video title>_<start>-<end>` | File name without the extension. Each format adds its own. With no `--end` the end part is the word `end`, as in `title_83-end`. |
 | `--quality Q` | `medium` | `low`, `medium` or `high`. See below. |
 | `--overwrite` | off | Replace files that already exist. |
 | `--no-pin` | off | Use whatever yt-dlp, ffmpeg and deno are on your PATH and skip the version check. deno is optional here. |
 
 Times are written as `SS`, `MM:SS` or `HH:MM:SS`. Only the last part can have decimals.
+
+Without `--end` the clip runs to the end of the video. On a long video, give an end time unless you really want everything after the start, because a GIF of that much footage gets very large.
 
 ### Existing files
 

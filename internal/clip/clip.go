@@ -18,7 +18,7 @@ import (
 // Opts is one clip request, already validated by the CLI.
 type Opts struct {
 	URL        string
-	Start, End float64
+	Start, End float64 // End 0 = until the end of the video
 	Formats    []string
 	OutDir     string
 	Name       string // empty = derive from the video title
@@ -115,7 +115,7 @@ func jsRuntimeArgs(deno string) []string {
 	return []string{"--no-js-runtimes", "--js-runtimes", "deno:" + deno}
 }
 
-// ytdlpDownloadArgs downloads just [Start, End]. --ffmpeg-location is
+// ytdlpDownloadArgs downloads just [Start, End], or [Start, end of video] when End is 0. --ffmpeg-location is
 // mandatory so yt-dlp uses the pinned ffmpeg, and the URL follows `--` so a
 // value starting with "-" is never read as an option.
 func ytdlpDownloadArgs(o Opts, ffmpegPath, deno, tmpDir string, wantAudio bool) []string {
@@ -123,11 +123,15 @@ func ytdlpDownloadArgs(o Opts, ffmpegPath, deno, tmpDir string, wantAudio bool) 
 	if wantAudio {
 		format = "bv*+ba/b"
 	}
+	end := "inf" // End 0 = until the end of the video
+	if o.End > 0 {
+		end = naming.FmtSeconds(o.End)
+	}
 	args := append([]string{"--ignore-config"}, jsRuntimeArgs(deno)...)
 	return append(args,
 		"--no-playlist",
 		"-f", format,
-		"--download-sections", fmt.Sprintf("*%s-%s", naming.FmtSeconds(o.Start), naming.FmtSeconds(o.End)),
+		"--download-sections", fmt.Sprintf("*%s-%s", naming.FmtSeconds(o.Start), end),
 		"--force-keyframes-at-cuts",
 		"--merge-output-format", "mkv",
 		"--ffmpeg-location", ffmpegPath,

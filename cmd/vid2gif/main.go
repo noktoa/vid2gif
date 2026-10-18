@@ -43,7 +43,7 @@ func newClipFlags(o *clip.Opts, start, end, formats *string) *flag.FlagSet {
 	fs := flag.NewFlagSet("clip", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(start, "start", "", "start time: SS, MM:SS or HH:MM:SS (required)")
-	fs.StringVar(end, "end", "", "end time (default: start + 5s)")
+	fs.StringVar(end, "end", "", "end time (default: the end of the video)")
 	fs.StringVar(formats, "format", "gif", "comma-separated: gif,webp,mp4,mov")
 	fs.StringVar(&o.OutDir, "out", "./gifs", "output directory (created if missing)")
 	fs.StringVar(&o.Name, "name", "", "file name without extension (default <title>_<start>-<end>)")
@@ -88,9 +88,7 @@ func parseClipArgs(args []string) (clip.Opts, error) {
 	if o.Start, err = naming.ParseTimestamp(start); err != nil {
 		return o, usageError("--start: " + err.Error())
 	}
-	if end == "" {
-		o.End = o.Start + 5
-	} else {
+	if end != "" { // no --end: o.End stays 0, meaning until the end of the video
 		if o.End, err = naming.ParseTimestamp(end); err != nil {
 			return o, usageError("--end: " + err.Error())
 		}

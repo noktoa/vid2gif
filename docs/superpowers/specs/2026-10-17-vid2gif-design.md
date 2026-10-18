@@ -40,7 +40,7 @@ The URL is taken as the first argument after `clip`; Go's `flag` package parses 
 | Flag | Default | Notes |
 |---|---|---|
 | `--start` | required | `SS`, `MM:SS` or `HH:MM:SS`; the last component may have decimals (`1:23.5`) |
-| `--end` | start + 5 s | must be after start |
+| `--end` | end of the video | must be after start; with no `--end`, yt-dlp gets `*START-inf` and the default name ends in `-end` (internally `End == 0`) |
 | `--format` | `gif` | comma-separated subset of `gif,webp,mp4,mov` |
 | `--out` | `./gifs` | created if missing |
 | `--name` | `<sanitized-title>_<start>-<end>` | base name, no extension; each format adds its own |

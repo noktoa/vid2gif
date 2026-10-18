@@ -47,6 +47,10 @@ func TestBuildName(t *testing.T) {
 	if got := BuildName("My: Video", 83, 88.5); got != "My__Video_83-88.5" {
 		t.Errorf("got %q", got)
 	}
+	// End 0 means "until the end of the video"
+	if got := BuildName("My: Video", 83, 0); got != "My__Video_83-end" {
+		t.Errorf("got %q", got)
+	}
 }
 
 func TestPlanOutputs(t *testing.T) {

@@ -283,3 +283,10 @@ func TestYtdlpUsesOnlyPinnedDeno(t *testing.T) {
 		t.Errorf("no deno given, but runtime flags were passed: %q", args)
 	}
 }
+
+func TestYtdlpSectionRunsToEndWhenNoEnd(t *testing.T) {
+	args := ytdlpDownloadArgs(Opts{URL: "https://x", Start: 83.5}, "ffmpeg", "", "tmp", false)
+	if got := argAfter(args, "--download-sections"); got != "*83.5-inf" {
+		t.Errorf("section = %q; want *83.5-inf", got)
+	}
+}
