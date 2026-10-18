@@ -10,8 +10,8 @@ Supported platforms: Windows (amd64) and Linux (amd64, arm64).
 
 You need [Go](https://go.dev/dl/) to build it. You don't need yt-dlp, ffmpeg or deno installed; vid2gif fetches its own copies.
 
-```
-go build -o vid2gif ./cmd/vid2gif   # produces vid2gif.exe on Windows
+```powershell
+go build -o vid2gif.exe ./cmd/vid2gif   # produces vid2gif.exe on Windows
 ./vid2gif deps install            # one-time: downloads the pinned yt-dlp, ffmpeg and deno into bin/ (or $VID2GIF_BIN)
 ./vid2gif clip "https://www.youtube.com/watch?v=aqz-KE-bpKQ" --start 2 --end 5
 ```
