@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"vid2gif/internal/clip"
 	"vid2gif/internal/deps"
 	"vid2gif/internal/encode"
@@ -21,7 +22,7 @@ const usage = `vid2gif - turn a segment of an online video into a GIF, WebP, MP4
 
 Usage:
   vid2gif clip <url> --start T [flags]    the URL must come first
-  vid2gif deps install                    download the pinned yt-dlp, ffmpeg and deno into ./bin (run once)
+  vid2gif deps install                    download the pinned yt-dlp, ffmpeg and deno into bin/ or $VID2GIF_BIN (run once)
   vid2gif help                            show this text
 
 Example:
@@ -121,6 +122,27 @@ func baseDir() string {
 	return wd
 }
 
+// binDir is where the pinned tools live: $VID2GIF_BIN if set, otherwise bin/
+// next to deps.json. A relative VID2GIF_BIN starts from the folder that holds
+// deps.json, so VID2GIF_BIN=bin is exactly the default. Used by both
+// `deps install` and `clip`.
+func binDir(base string) string {
+	d := os.Getenv("VID2GIF_BIN")
+	switch {
+	case d == "":
+		return filepath.Join(base, "bin")
+	case filepath.IsAbs(d):
+		return d
+	}
+	return filepath.Join(base, d)
+}
+
+// loadEnv reads an optional .env file next to deps.json. Variables already
+// set in the real environment win, and a missing file is fine.
+func loadEnv(base string) {
+	_ = godotenv.Load(filepath.Join(base, ".env"))
+}
+
 func runDepsInstall(base string, stdout, stderr io.Writer) int {
 	d, err := deps.Load(filepath.Join(base, "deps.json"))
 	if err != nil {
@@ -133,7 +155,7 @@ func runDepsInstall(base string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error: deps.json has no entry for %s\n", name)
 			return 1
 		}
-		if err := deps.Install(name, t, filepath.Join(base, "bin"), stdout); err != nil {
+		if err := deps.Install(name, t, binDir(base), stdout); err != nil {
 			fmt.Fprintf(stderr, "error: %s: %v\n", name, err)
 			return 1
 		}
@@ -152,6 +174,7 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	base := baseDir()
+	loadEnv(base)
 	d := deps.Pins{}
 	if !o.NoPin {
 		if d, err = deps.Load(filepath.Join(base, "deps.json")); err != nil {
@@ -159,7 +182,7 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	r := deps.NewResolver(base)
+	r := deps.NewResolver(binDir(base))
 	ytdlp, err := r.Resolve("yt-dlp", d["yt-dlp"], o.NoPin)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
@@ -203,7 +226,9 @@ func realMain(args []string, stdout, stderr io.Writer) int {
 		return runClipCmd(args[1:], stdout, stderr)
 	case "deps":
 		if len(args) == 2 && args[1] == "install" {
-			return runDepsInstall(baseDir(), stdout, stderr)
+			base := baseDir()
+			loadEnv(base)
+			return runDepsInstall(base, stdout, stderr)
 		}
 		fmt.Fprint(stderr, usage)
 		return 2

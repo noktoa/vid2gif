@@ -134,7 +134,7 @@ One entry per tool, keyed by `GOOS-GOARCH`:
 
 The URLs and SHA-256 values above were read from the upstream release pages (yt-dlp `2026.08.19` `SHA2-256SUMS`; FFmpeg-Builds `autobuild-2026-10-16-18-04` `checksums.sha256`) on 2026-10-17. The plain `yt-dlp` release asset is a Python zipapp and is deliberately not used; `yt-dlp_linux*` are standalone binaries.
 
-`deps.json` and `bin/` live next to the executable. If `deps.json` is not next to the executable (for example under `go run`), the current directory is used instead.
+`deps.json` lives next to the executable, and the tools folder is `bin/` next to it unless `VID2GIF_BIN` names another one (a relative value starts from the `deps.json` folder). An optional `.env` file next to `deps.json` is read at startup (`github.com/joho/godotenv`); variables already in the real environment win. If `deps.json` is not next to the executable (for example under `go run`), the current directory is used instead.
 
 ### `deps install`
 
@@ -142,7 +142,7 @@ For each tool: if `bin/<tool>` already reports the pinned version, do nothing. O
 
 ### Resolution on every run
 
-For each tool: `bin/<tool>` first, then PATH. Run `--version` and compare with the pin:
+For each tool: `<tools folder>/<tool>` first, then PATH. Run `--version` and compare with the pin:
 
 - yt-dlp: output must equal the pinned version exactly (`2026.08.19`).
 - deno: the first line of `deno --version` must start with `deno <pin> ` (the real line is `deno 2.9.7 (stable, release, ...)`).
@@ -152,7 +152,7 @@ A mismatch exits `1` with the pinned version, the version found, and "run `vid2g
 
 ### Archive handling and the one dependency
 
-Go's standard library has no xz decompressor and the Linux ffmpeg builds ship only as `.tar.xz`. The tool therefore uses **`github.com/ulikunitz/xz`** (pure Go, no cgo) — the only non-standard-library dependency of the shipped binary. The integration test also uses `github.com/joho/godotenv` to read an optional `.env` file; it is not part of the binary. The alternative of shelling out to `tar -xJf` was rejected because minimal Linux images often lack `xz`.
+Go's standard library has no xz decompressor and the Linux ffmpeg builds ship only as `.tar.xz`. The tool therefore uses **`github.com/ulikunitz/xz`** (pure Go, no cgo) — one of the shipped binary's two non-standard-library dependencies. The other is `github.com/joho/godotenv`, which reads the optional `.env` file (the integration test uses it too). The alternative of shelling out to `tar -xJf` was rejected because minimal Linux images often lack `xz`.
 
 ## Error handling summary
 
@@ -186,6 +186,7 @@ test/integration/            real-tools test behind the integration build tag
 build/Dockerfile.test        Linux integration tests (build context is the repo root); layered so modules and the pinned tools are cached separately from code
 build/installtools/          installs every tool in deps.json (used by the Docker tools layer)
 deps.json                    pins, next to the built executable
+.env.example                 example of the optional .env (VID2GIF_BIN=bin)
 *_test.go                    unit tests, next to the code they cover
 README.md                    usage, pin bumping, supported platforms, licensing note
 ```

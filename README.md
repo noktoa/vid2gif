@@ -12,7 +12,7 @@ You need [Go](https://go.dev/dl/) to build it. You don't need yt-dlp, ffmpeg or 
 
 ```
 go build -o vid2gif ./cmd/vid2gif   # produces vid2gif.exe on Windows
-./vid2gif deps install            # one-time: downloads the pinned yt-dlp, ffmpeg and deno into ./bin
+./vid2gif deps install            # one-time: downloads the pinned yt-dlp, ffmpeg and deno into bin/ (or $VID2GIF_BIN)
 ./vid2gif clip "https://www.youtube.com/watch?v=aqz-KE-bpKQ" --start 2 --end 5
 ```
 
@@ -74,8 +74,14 @@ GIFs and WebPs get fewer frames per second than the source, but the clip still p
 `deps.json` lists the exact yt-dlp, ffmpeg and deno builds vid2gif works with, for each platform: a download URL, a SHA-256 checksum and a version.
 
 - `vid2gif deps install` downloads them into `bin/`, checks the checksums, and confirms each one reports the pinned version. If the right version is already there, it does nothing.
-- Every `clip` run looks in `bin/` first, then on your PATH, and compares the version with the pin before doing any work. If it doesn't match, vid2gif stops and tells you what it expected and what it found.
+- Every `clip` run looks in the tools folder (`bin/` by default) first, then on your PATH, and compares the version with the pin before doing any work. If it doesn't match, vid2gif stops and tells you what it expected and what it found.
 - `--no-pin` skips that check. It's also the way to use vid2gif on a platform that isn't supported yet, as long as you have your own yt-dlp and ffmpeg (and deno, for YouTube).
+
+### Where the tools live
+
+By default the tools go in `bin/`, next to `deps.json`. Set the `VID2GIF_BIN` environment variable to use another folder; both `deps install` and `clip` honour it. A relative path starts from the folder that holds `deps.json`, so `VID2GIF_BIN=bin` is the same as the default.
+
+You can also put it in a `.env` file in that folder. `.env.example` shows the format, so `cp .env.example .env` is all it takes. A variable set in your real environment takes priority over `.env`. The integration test reads the same variable and the same file.
 
 ### When a download fails
 
@@ -114,7 +120,7 @@ docker run --rm vid2gif-test
 
 Use `--platform linux/arm64` for arm64. It runs under emulation and is slow.
 
-To keep the downloaded tools between native runs, set `VID2GIF_BIN` to a folder before running the integration test; tools that already match their pins aren't downloaded again. You can put it in a `.env` file at the repo root instead (`VID2GIF_BIN=.tools`; relative paths start from the repo root). A variable set in your real environment takes priority over `.env`. Only the integration test reads `.env`; the `vid2gif` program doesn't.
+The integration test installs the tools into a temporary folder unless `VID2GIF_BIN` is set (see [Where the tools live](#where-the-tools-live)); set it to reuse an existing folder such as `bin/` so nothing is downloaded again.
 
 On GitHub, `.github/workflows/ci.yml` runs the unit tests on every push. `integration.yml` runs the integration test on Windows, Linux amd64 and Linux arm64 every week and whenever `deps.json` or the code that uses it changes. The pinned tools are about 250 MB, so they're cached: the Linux jobs reuse Docker layers (`build/Dockerfile.test` puts the tools in their own layer, which only rebuilds when `deps.json` or the installer changes), and the Windows job caches the tools folder. The weekly run skips those caches so it still catches a pinned download that has been removed upstream. Neither workflow contacts YouTube; the integration test only downloads the pinned tools from GitHub releases.
 

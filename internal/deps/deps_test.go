@@ -65,9 +65,9 @@ func TestVersionMatches(t *testing.T) {
 
 var ytTool = Tool{Version: "2026.08.19"}
 
-func resolverWith(baseDir string, pathHit string, ver string) Resolver {
+func resolverWith(binDir string, pathHit string, ver string) Resolver {
 	return Resolver{
-		baseDir: baseDir,
+		binDir: binDir,
 		lookPath: func(string) (string, error) {
 			if pathHit == "" {
 				return "", errors.New("not found")
@@ -80,11 +80,10 @@ func resolverWith(baseDir string, pathHit string, ver string) Resolver {
 
 func makeBin(t *testing.T, base, name string) string {
 	t.Helper()
-	dir := filepath.Join(base, "bin")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(dir, ExeName(name))
+	p := filepath.Join(base, ExeName(name))
 	if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}

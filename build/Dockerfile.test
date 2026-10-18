@@ -8,13 +8,15 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 # Pinned yt-dlp, ffmpeg and deno (~250 MB): re-run only when deps.json or the
-# installer changes.
+# installer changes. Only the installer's source files are copied (not the
+# resolver or the tests), so editing those keeps this layer cached.
 COPY deps.json ./
-COPY internal/deps internal/deps
+COPY internal/deps/deps.go internal/deps/install.go internal/deps/
 COPY build/installtools build/installtools
 RUN go run ./build/installtools deps.json /opt/tools
 
 FROM tools AS test
 COPY . .
+# an absolute path, so it is independent of the default bin/ used outside Docker
 ENV VID2GIF_BIN=/opt/tools
 CMD ["go", "test", "-tags", "integration", "-v", "-timeout", "30m", "./test/integration/"]
