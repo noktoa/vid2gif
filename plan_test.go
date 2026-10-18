@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseFormats(t *testing.T) {
@@ -32,7 +33,8 @@ func TestSanitizeTitle(t *testing.T) {
 		{`<>:"/\|?*`, "_________"},
 		{"日本語のタイトル", "日本語のタイトル"},
 		{strings.Repeat("a", 100), strings.Repeat("a", 80)},
-		{strings.Repeat("日", 100), strings.Repeat("日", 80)},
+		{strings.Repeat("日", 100), strings.Repeat("日", 66)}, // 198 bytes: Linux file names max out at 255 bytes
+		{strings.Repeat("😀", 100), strings.Repeat("😀", 50)},
 	}
 	for _, c := range cases {
 		if got := sanitizeTitle(c.in); got != c.want {
@@ -61,5 +63,15 @@ func TestPlanOutputs(t *testing.T) {
 	}
 	if got := outPath(dir, "demo", "webp"); got != filepath.Join(dir, "demo.webp") {
 		t.Errorf("outPath = %q", got)
+	}
+}
+
+func TestSanitizeTitleFitsLinuxFileNameLimit(t *testing.T) {
+	for _, title := range []string{strings.Repeat("日", 100), strings.Repeat("😀", 100), strings.Repeat("a", 500)} {
+		// longest possible suffix: "_" + two 5-digit times with decimals + ".webp"
+		name := buildName(title, 3725.5, 3730.5) + ".webp"
+		if len(name) > 255 || !utf8.ValidString(name) {
+			t.Errorf("name for %.8q... is %d bytes (valid utf8: %v); want <= 255", title, len(name), utf8.ValidString(name))
+		}
 	}
 }

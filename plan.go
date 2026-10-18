@@ -37,9 +37,16 @@ func sanitizeTitle(s string) string {
 		return r
 	}, s)
 	s = strings.Join(strings.Fields(s), "_")
-	if r := []rune(s); len(r) > 80 {
-		s = string(r[:80])
+	// 80 characters, and at most 200 bytes so the time suffix and extension
+	// still fit in a 255-byte Linux file name (CJK and emoji take 3-4 bytes each).
+	r := []rune(s)
+	if len(r) > 80 {
+		r = r[:80]
 	}
+	for len(string(r)) > 200 {
+		r = r[:len(r)-1]
+	}
+	s = string(r)
 	s = strings.TrimRight(s, ". ")
 	if s == "" {
 		return "clip"
