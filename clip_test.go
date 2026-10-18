@@ -237,3 +237,14 @@ func TestPickClipFile(t *testing.T) {
 		t.Error("expected error when yt-dlp produced nothing")
 	}
 }
+
+func TestYtdlpIgnoresUserConfig(t *testing.T) {
+	for label, args := range map[string][]string{
+		"title":    ytdlpTitleArgs("https://x"),
+		"download": ytdlpDownloadArgs(clipOpts{URL: "https://x", Start: 1, End: 2}, "ffmpeg", "tmp", false),
+	} {
+		if !slices.Contains(args, "--ignore-config") {
+			t.Errorf("%s args must include --ignore-config so a user's yt-dlp config cannot change a pinned run: %q", label, args)
+		}
+	}
+}

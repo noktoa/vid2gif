@@ -95,8 +95,9 @@ func (p pipeline) run(ctx context.Context, o clipOpts) error {
 }
 
 // ytdlpTitleArgs asks yt-dlp for the video title only (no download).
+// --ignore-config keeps a user's own yt-dlp config from changing a pinned run.
 func ytdlpTitleArgs(url string) []string {
-	return []string{"--print", "title", "--no-playlist", "--", url}
+	return []string{"--ignore-config", "--print", "title", "--no-playlist", "--", url}
 }
 
 // ytdlpDownloadArgs downloads just [Start, End]. --ffmpeg-location is
@@ -108,7 +109,7 @@ func ytdlpDownloadArgs(o clipOpts, ffmpegPath, tmpDir string, wantAudio bool) []
 		format = "bv*+ba/b"
 	}
 	return []string{
-		"--no-playlist",
+		"--ignore-config", "--no-playlist",
 		"-f", format,
 		"--download-sections", fmt.Sprintf("*%s-%s", fmtSeconds(o.Start), fmtSeconds(o.End)),
 		"--force-keyframes-at-cuts",
