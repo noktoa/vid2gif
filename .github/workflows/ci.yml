@@ -12,6 +12,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true # Go modules and build cache, keyed on go.sum
       - name: gofmt
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...

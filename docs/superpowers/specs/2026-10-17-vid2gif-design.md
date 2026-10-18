@@ -183,7 +183,8 @@ internal/encode/encode.go    quality presets, ffmpeg argument builder and runner
 internal/naming/             timestamps (timestamp.go), formats, file names, skip-existing planning (plan.go)
 internal/deps/               deps.json, version matching, tool resolution (deps.go); download, SHA-256, extract, install (install.go)
 test/integration/            real-tools test behind the integration build tag
-build/Dockerfile.test        Linux integration tests (build context is the repo root)
+build/Dockerfile.test        Linux integration tests (build context is the repo root); layered so modules and the pinned tools are cached separately from code
+build/installtools/          installs every tool in deps.json (used by the Docker tools layer)
 deps.json                    pins, next to the built executable
 *_test.go                    unit tests, next to the code they cover
 README.md                    usage, pin bumping, supported platforms, licensing note

@@ -69,7 +69,12 @@ func TestRealToolsEncode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binDir := t.TempDir()
+	// VID2GIF_BIN lets CI and Docker keep the downloaded tools between runs;
+	// Install is a no-op for a tool that already matches its pin.
+	binDir := os.Getenv("VID2GIF_BIN")
+	if binDir == "" {
+		binDir = t.TempDir()
+	}
 	for _, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
 		if err := deps.Install(name, d[name], binDir, os.Stdout); err != nil {
 			t.Fatalf("install %s: %v", name, err)

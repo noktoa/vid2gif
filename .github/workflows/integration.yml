@@ -1,11 +1,16 @@
 # Runs the real pinned yt-dlp, ffmpeg and deno on every supported platform.
 # It downloads them from GitHub releases and encodes locally generated test
 # videos. It never contacts YouTube or any other video site.
+#
+# The tools (~250 MB) are cached so a code-only change doesn't download them
+# again: Linux caches Docker layers (build/Dockerfile.test), Windows caches
+# the tools folder. The weekly run skips the caches on purpose, so it still
+# notices a pinned download disappearing upstream.
 name: integration
 
 on:
   schedule:
-    - cron: "0 6 * * 1" # weekly, to notice pinned downloads going stale
+    - cron: "0 6 * * 1"
   workflow_dispatch:
   push:
     paths:
@@ -13,18 +18,46 @@ on:
       - internal/deps/**
       - internal/encode/**
       - test/integration/**
+      - build/**
+      - .dockerignore
       - .github/workflows/integration.yml
 
 jobs:
-  integration:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.os }}
+  windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
+      - name: Restore pinned tools
+        if: github.event_name != 'schedule'
+        uses: actions/cache@v4
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('deps.json') }}
       - run: go test -tags integration -v -timeout 30m ./test/integration/
+        env:
+          VID2GIF_BIN: ${{ github.workspace }}\.tools
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: build/Dockerfile.test
+          load: true
+          tags: vid2gif-test
+          cache-from: type=gha,scope=linux-${{ matrix.os }}
+          cache-to: type=gha,scope=linux-${{ matrix.os }},mode=max
+          # the weekly run rebuilds the "tools" stage from scratch
+          no-cache-filters: ${{ github.event_name == 'schedule' && 'tools' || '' }}
+      - run: docker run --rm vid2gif-test

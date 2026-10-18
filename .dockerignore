@@ -2,5 +2,6 @@ bin
 gifs
 docs
 .git
+.github
 .superpowers
 *.exe

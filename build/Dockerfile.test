@@ -1,7 +1,20 @@
+# Build context is the repo root. Layers are ordered by how often their inputs
+# change, so a code-only change re-runs nothing above the final COPY.
 ARG GO_VERSION=1.26
-FROM golang:${GO_VERSION}
+
+FROM golang:${GO_VERSION} AS tools
 WORKDIR /src
+# Go modules: re-run only when go.mod or go.sum change.
 COPY go.mod go.sum ./
 RUN go mod download
+# Pinned yt-dlp, ffmpeg and deno (~250 MB): re-run only when deps.json or the
+# installer changes.
+COPY deps.json ./
+COPY internal/deps internal/deps
+COPY build/installtools build/installtools
+RUN go run ./build/installtools deps.json /opt/tools
+
+FROM tools AS test
 COPY . .
+ENV VID2GIF_BIN=/opt/tools
 CMD ["go", "test", "-tags", "integration", "-v", "-timeout", "30m", "./test/integration/"]
