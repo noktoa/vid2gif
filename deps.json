@@ -1,0 +1,42 @@
+{
+  "yt-dlp": {
+    "version": "2026.08.19",
+    "platforms": {
+      "windows-amd64": {
+        "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",
+        "sha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a",
+        "archive": "none"
+      },
+      "linux-amd64": {
+        "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_linux",
+        "sha256": "58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a",
+        "archive": "none"
+      },
+      "linux-arm64": {
+        "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_linux_aarch64",
+        "sha256": "b16e4dab368a816cd05d477d698a605a6ae87ccee1c8ffd38fa21d7254141fcc",
+        "archive": "none"
+      }
+    }
+  },
+  "ffmpeg": {
+    "version": "N-127588-g0b19c65afe",
+    "platforms": {
+      "windows-amd64": {
+        "url": "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/autobuild-2026-10-16-18-04/ffmpeg-N-127588-g0b19c65afe-win64-gpl.zip",
+        "sha256": "51aced1016570cbda6712bcf36aa05809dd195229416fc61e3865a359d3f43ca",
+        "archive": "zip"
+      },
+      "linux-amd64": {
+        "url": "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/autobuild-2026-10-16-18-04/ffmpeg-N-127588-g0b19c65afe-linux64-gpl.tar.xz",
+        "sha256": "48282ca75e1364207c7c7e0d316527af0426ddf87d5cfbb672f46ad63d802708",
+        "archive": "tar.xz"
+      },
+      "linux-arm64": {
+        "url": "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/autobuild-2026-10-16-18-04/ffmpeg-N-127588-g0b19c65afe-linuxarm64-gpl.tar.xz",
+        "sha256": "81ce8bb9507dc960737ced800ef47748d36495205d90467fc69b57c10561e7c3",
+        "archive": "tar.xz"
+      }
+    }
+  }
+}
