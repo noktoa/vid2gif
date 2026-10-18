@@ -13,7 +13,7 @@ func TestRealDepsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"yt-dlp", "ffmpeg"} {
+	for _, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
 		tl, ok := d[name]
 		if !ok || tl.Version == "" {
 			t.Fatalf("%s missing or has no version", name)
@@ -52,6 +52,9 @@ func TestVersionMatches(t *testing.T) {
 		{"ffmpeg", "N-127588-g0b19c65afe", "ffmpeg version N-123074-g4e32fb4c2a-20260228 Copyright\n", false},
 		{"ffmpeg", "N-127588-g0b19c65afe", "ffmpeg version N-127588-g0b19c65afe-20261016 Copyright\r\n", true},
 		{"ffmpeg", "N-127588-g0b19c65afe", "", false},
+		{"deno", "2.9.7", "deno 2.9.7 (stable, release, x86_64-pc-windows-msvc)\nv8 15.0.245.2-rusty\ntypescript 5.9.2\n", true},
+		{"deno", "2.9.7", "deno 2.9.70 (stable, release, x86_64-pc-windows-msvc)\n", false},
+		{"deno", "2.9.7", "deno 2.8.0 (stable, release, x86_64-pc-windows-msvc)\n", false},
 	}
 	for _, c := range cases {
 		if got := versionMatches(c.name, c.pin, c.out); got != c.want {

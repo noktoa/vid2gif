@@ -101,28 +101,38 @@ func (p Pipeline) Run(ctx context.Context, o Opts) error {
 
 // ytdlpTitleArgs asks yt-dlp for the video title only (no download).
 // --ignore-config keeps a user's own yt-dlp config from changing a pinned run.
-func ytdlpTitleArgs(url string) []string {
-	return []string{"--ignore-config", "--print", "title", "--no-playlist", "--", url}
+func ytdlpTitleArgs(url, deno string) []string {
+	return append(append([]string{"--ignore-config"}, jsRuntimeArgs(deno)...), "--print", "title", "--no-playlist", "--", url)
+}
+
+// jsRuntimeArgs restricts yt-dlp to the pinned deno, which YouTube extraction
+// needs. --no-js-runtimes must come first because it clears earlier entries.
+// With no deno (--no-pin and none installed) yt-dlp keeps its own defaults.
+func jsRuntimeArgs(deno string) []string {
+	if deno == "" {
+		return nil
+	}
+	return []string{"--no-js-runtimes", "--js-runtimes", "deno:" + deno}
 }
 
 // ytdlpDownloadArgs downloads just [Start, End]. --ffmpeg-location is
 // mandatory so yt-dlp uses the pinned ffmpeg, and the URL follows `--` so a
 // value starting with "-" is never read as an option.
-func ytdlpDownloadArgs(o Opts, ffmpegPath, tmpDir string, wantAudio bool) []string {
+func ytdlpDownloadArgs(o Opts, ffmpegPath, deno, tmpDir string, wantAudio bool) []string {
 	format := "bv*/b"
 	if wantAudio {
 		format = "bv*+ba/b"
 	}
-	return []string{
-		"--ignore-config", "--no-playlist",
+	args := append([]string{"--ignore-config"}, jsRuntimeArgs(deno)...)
+	return append(args,
+		"--no-playlist",
 		"-f", format,
 		"--download-sections", fmt.Sprintf("*%s-%s", naming.FmtSeconds(o.Start), naming.FmtSeconds(o.End)),
 		"--force-keyframes-at-cuts",
 		"--merge-output-format", "mkv",
 		"--ffmpeg-location", ffmpegPath,
 		"-o", filepath.Join(tmpDir, "clip.%(ext)s"),
-		"--", o.URL,
-	}
+		"--", o.URL)
 }
 
 // pickClipFile finds yt-dlp's output (clip.<ext>), ignoring partial files.
@@ -149,10 +159,10 @@ func withHint(err error, hint string) error {
 
 // New wires in the real tools. hint is appended to yt-dlp failures
 // (e.g. how to bump the pin).
-func New(ytdlp, ffmpeg, hint string, out io.Writer) Pipeline {
+func New(ytdlp, ffmpeg, deno, hint string, out io.Writer) Pipeline {
 	return Pipeline{
 		title: func(ctx context.Context, url string) (string, error) {
-			cmd := exec.CommandContext(ctx, ytdlp, ytdlpTitleArgs(url)...)
+			cmd := exec.CommandContext(ctx, ytdlp, ytdlpTitleArgs(url, deno)...)
 			cmd.Stderr = os.Stderr
 			b, err := cmd.Output()
 			if err != nil {
@@ -162,7 +172,7 @@ func New(ytdlp, ffmpeg, hint string, out io.Writer) Pipeline {
 			return strings.TrimSpace(title), nil
 		},
 		download: func(ctx context.Context, o Opts, tmpDir string, wantAudio bool) (string, error) {
-			cmd := exec.CommandContext(ctx, ytdlp, ytdlpDownloadArgs(o, ffmpeg, tmpDir, wantAudio)...)
+			cmd := exec.CommandContext(ctx, ytdlp, ytdlpDownloadArgs(o, ffmpeg, deno, tmpDir, wantAudio)...)
 			cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 			if err := cmd.Run(); err != nil {
 				return "", withHint(fmt.Errorf("yt-dlp: %w", err), hint)

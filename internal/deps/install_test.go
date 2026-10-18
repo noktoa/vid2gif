@@ -136,3 +136,24 @@ func TestInstallToolFailureKeepsExistingBinary(t *testing.T) {
 		t.Errorf("temp files left in bin: %v", entries)
 	}
 }
+
+// deno's release zip has the executable at the archive root, not under bin/.
+func TestExtractBinaryZipRootLevel(t *testing.T) {
+	arc := filepath.Join(t.TempDir(), "deno.zip")
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("deno.exe")
+	w.Write([]byte("deno binary"))
+	w, _ = zw.Create("docs/deno.exe") // a same-named file in another folder must not be picked
+	w.Write([]byte("wrong"))
+	zw.Close()
+	os.WriteFile(arc, buf.Bytes(), 0o644)
+
+	dest := filepath.Join(t.TempDir(), "deno.exe")
+	if err := extractBinary(arc, "zip", "deno.exe", dest); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(dest); string(got) != "deno binary" {
+		t.Errorf("extracted %q", got)
+	}
+}

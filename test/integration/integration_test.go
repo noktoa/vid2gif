@@ -46,12 +46,17 @@ func TestRealToolsEncode(t *testing.T) {
 		t.Fatal(err)
 	}
 	binDir := t.TempDir()
-	for _, name := range []string{"yt-dlp", "ffmpeg"} {
+	for _, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
 		if err := deps.Install(name, d[name], binDir, os.Stdout); err != nil {
 			t.Fatalf("install %s: %v", name, err)
 		}
 	}
 	ffmpeg := filepath.Join(binDir, deps.ExeName("ffmpeg"))
+
+	// YouTube extraction depends on the pinned deno actually running.
+	if out, err := exec.Command(filepath.Join(binDir, deps.ExeName("deno")), "--version").Output(); err != nil || !bytes.HasPrefix(out, []byte("deno "+d["deno"].Version+" ")) {
+		t.Errorf("pinned deno --version = %q, %v", out, err)
+	}
 
 	encoders, err := exec.Command(ffmpeg, "-hide_banner", "-encoders").Output()
 	if err != nil {

@@ -7,13 +7,13 @@ Status: draft for review
 
 A command-line tool: give it a video URL and a start time (and optionally an end time) and it writes that segment as a GIF, an animated WebP, an MP4, a MOV, or any combination. The user chooses the output directory, file name and quality. Downloading is done by **yt-dlp**, encoding by **ffmpeg**; this tool only orchestrates them.
 
-The author uses it personally and intends to share it with others, so it ships as a single Go binary that can fetch its own pinned copies of yt-dlp and ffmpeg.
+The author uses it personally and intends to share it with others, so it ships as a single Go binary that can fetch its own pinned copies of yt-dlp, ffmpeg and deno. The tool is mainly for clipping YouTube uploads, and YouTube extraction needs a JavaScript runtime, so deno (yt-dlp's preferred runtime) is a hard requirement.
 
 ### Success criteria
 
 - `vid2gif clip <url> --start 1:23 --end 1:30 --format gif,mp4 --out D:\gifs` produces `D:\gifs\<name>.gif` and `<name>.mp4` of that exact segment.
-- On a machine with neither yt-dlp nor ffmpeg installed, `vid2gif deps install` followed by `vid2gif clip ...` works with no other setup.
-- The tool never silently uses a different yt-dlp or ffmpeg version than the one pinned.
+- On a machine with none of yt-dlp, ffmpeg or deno installed, `vid2gif deps install` followed by `vid2gif clip ...` works with no other setup.
+- The tool never silently uses a different yt-dlp, ffmpeg or deno version than the one pinned.
 - All three supported platforms pass the integration tests.
 
 ### Non-goals
@@ -46,7 +46,7 @@ The URL is taken as the first argument after `clip`; Go's `flag` package parses 
 | `--name` | `<sanitized-title>_<start>-<end>` | base name, no extension; each format adds its own |
 | `--quality` | `medium` | see table below |
 | `--overwrite` | off | replace existing outputs |
-| `--no-pin` | off | skip version checks and use yt-dlp/ffmpeg from PATH |
+| `--no-pin` | off | skip version checks and use yt-dlp/ffmpeg/deno from PATH (deno optional) |
 
 Exit codes: `0` success (including skipped outputs), `1` runtime failure (download or encode failed, tool missing or wrong version), `2` usage error (bad flag or timestamp).
 
@@ -67,7 +67,7 @@ Width is a cap: sources narrower than the cap are not upscaled. fps and width pr
 3. **Resolve the name.** If `--name` is absent, run `yt-dlp --print title --no-playlist <url>` (metadata only, no download) and build `<sanitized-title>_<start>-<end>`. Sanitizing replaces `<>:"/\|?*` and control characters, collapses whitespace to `_`, trims trailing dots and spaces, caps the title at 80 characters, and falls back to `clip` if the result is empty.
 4. **Plan outputs.** For each requested format, if `<out>/<name>.<ext>` exists and `--overwrite` is not set, print `skipped <file> (already exists; use --overwrite to replace)` and drop it from the plan. If nothing is left, stop with exit `0` before downloading.
 5. **Download once** into a temp dir created inside `--out` (`.vid2gif-tmp-*`, so the final move is a same-volume rename). yt-dlp is run with:
-   `--no-playlist --download-sections "*START-END" --force-keyframes-at-cuts --merge-output-format mkv --ffmpeg-location <pinned ffmpeg dir> -o <tmp>/clip.%(ext)s`
+   `--no-playlist --download-sections "*START-END" --force-keyframes-at-cuts --merge-output-format mkv --ffmpeg-location <pinned ffmpeg dir> --ignore-config --no-js-runtimes --js-runtimes deno:<pinned deno> -o <tmp>/clip.%(ext)s`
    plus `-f "bv*+ba/b"` when mp4 or mov is planned, or `-f "bv*/b"` (no audio download) when only gif/webp are planned. yt-dlp's stdout and stderr stream to the terminal. `--ffmpeg-location` is mandatory; without it yt-dlp would use whatever ffmpeg is on PATH and defeat the pin.
 6. **Encode each planned format** from the downloaded clip into the temp dir, then rename into `--out`. A failure in one format does not delete outputs already written; the run continues with the remaining formats and exits `1` at the end.
 7. **Clean up** the temp dir (also on Ctrl+C, via a cancellable context passed to every child process).
@@ -138,13 +138,14 @@ The URLs and SHA-256 values above were read from the upstream release pages (yt-
 
 ### `deps install`
 
-For each tool: if `bin/<tool>` already reports the pinned version, do nothing. Otherwise download the platform asset, verify its SHA-256 while streaming it to disk (the file is deleted on mismatch), extract only the binary (`archive: zip`/`tar.xz` → the entry whose path ends in `/bin/ffmpeg` or `/bin/ffmpeg.exe`; `none` → the file itself), set the executable bit on Linux, run `--version`, and fail if it does not match the pin.
+For each tool: if `bin/<tool>` already reports the pinned version, do nothing. Otherwise download the platform asset, verify its SHA-256 while streaming it to disk (the file is deleted on mismatch), extract only the binary (`archive: zip`/`tar.xz` → the entry `<dir>/bin/<tool>` (ffmpeg) or `<tool>` at the archive root (deno); `none` → the file itself), set the executable bit on Linux, run `--version`, and fail if it does not match the pin.
 
 ### Resolution on every run
 
 For each tool: `bin/<tool>` first, then PATH. Run `--version` and compare with the pin:
 
 - yt-dlp: output must equal the pinned version exactly (`2026.08.19`).
+- deno: the first line of `deno --version` must start with `deno <pin> ` (the real line is `deno 2.9.7 (stable, release, ...)`).
 - ffmpeg: the first line of `ffmpeg -version` must contain `ffmpeg version <pin>` as a prefix match (the real string is `N-127588-g0b19c65afe-20261016`; only the revision and hash are pinned).
 
 A mismatch exits `1` with the pinned version, the version found, and "run `vid2gif deps install`". If yt-dlp itself fails, its error is shown followed by a hint that the pinned version is `X` and can be bumped in `deps.json` or bypassed with `--no-pin`. `--no-pin` skips resolution checks entirely.
@@ -161,6 +162,7 @@ Go's standard library has no xz decompressor and the Linux ffmpeg builds ship on
 | Unsupported platform for `deps install` | exit 1 with the `--no-pin` hint |
 | Tool missing or version mismatch | exit 1 with the install/fix command |
 | SHA-256 mismatch on download | delete the file, exit 1 |
+| deno missing or not the pinned version (without `--no-pin`) | exit 1 with the `deps install` hint, before any download |
 | yt-dlp or ffmpeg non-zero exit | exit 1; their output is already on screen |
 | Existing output | skipped with a message; exit 0 |
 | Ctrl+C | children cancelled, temp dir removed |
@@ -195,7 +197,7 @@ README.md                    usage, pin bumping, supported platforms, licensing 
 - **yt-dlp goes stale.** A pinned yt-dlp will eventually fail when a site changes. Bumping the pin (version, URL, hash) is a manual edit by design.
 - **Archive layout.** Both the Windows zip and the Linux tarballs hold `<dir>/bin/ffmpeg[.exe]`. The integration test confirmed this on Windows, Linux amd64 and Linux arm64.
 - **Codec support in the pinned builds.** `libx264` and `libwebp_anim` are present in all three pinned builds; the integration test asserts this and encodes every format, including sources with odd dimensions and no audio.
-- **YouTube extraction.** Without a JavaScript runtime (deno) yt-dlp warns that YouTube extraction is deprecated, and on 2026-10-17 one well-known video returned "This video is unavailable" from the pinned yt-dlp. The download path was verified against a locally served MP4 instead. Sites that need a JS runtime may need one installed.
+- **YouTube needs deno.** deno `2.9.7` (MIT) is pinned in `deps.json` (zip assets, SHA-256 from the release `.sha256sum` files). yt-dlp is told to use only that copy (`--no-js-runtimes --js-runtimes deno:<path>`). On 2026-10-17 yt-dlp `2026.08.19` still returned the same formats for a normal video without deno and only warned that YouTube extraction without a runtime is deprecated, so the requirement protects against a future breakage rather than a current one. A real YouTube clip was verified end to end with the pinned tools; one well-known video (`jNQXAC9IJRQ`) returns "This video is unavailable" regardless of deno.
 - **ffmpeg is GPL.** It is downloaded at install time, not redistributed with this tool; the README says so.
 - **Windows arm64** builds exist upstream (`winarm64-gpl.zip`, `yt-dlp_arm64.exe`) and can be added as `deps.json` entries once someone can test them.
 - **The author's installed yt-dlp (2026.03.03) is older than the pin.** The managed `bin/` copy takes precedence over PATH, so this doesn't affect the tool.

@@ -60,10 +60,13 @@ func firstLine(s string) string {
 
 // versionMatches compares a tool's version output with its pin. yt-dlp must
 // match exactly; ffmpeg's "ffmpeg version <build>-<date> ..." line must start
-// with the pinned build.
+// with the pinned build; deno's first line must be "deno <pin> (...".
 func versionMatches(name, pin, out string) bool {
 	if name == "ffmpeg" {
 		return strings.HasPrefix(strings.TrimPrefix(firstLine(out), "ffmpeg version "), pin)
+	}
+	if name == "deno" { // "deno 2.9.7 (stable, release, ...)"
+		return strings.HasPrefix(firstLine(out), "deno "+pin+" ")
 	}
 	return strings.TrimSpace(out) == pin
 }

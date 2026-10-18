@@ -21,12 +21,12 @@ const usage = `vid2gif - turn a segment of an online video into a GIF, WebP, MP4
 
 Usage:
   vid2gif clip <url> --start T [flags]    the URL must come first
-  vid2gif deps install                    download the pinned yt-dlp and ffmpeg into ./bin (run once)
+  vid2gif deps install                    download the pinned yt-dlp, ffmpeg and deno into ./bin (run once)
   vid2gif help                            show this text
 
 Example:
   vid2gif deps install
-  vid2gif clip "https://www.youtube.com/watch?v=jNQXAC9IJRQ" --start 1:23 --end 1:30 --format gif,mp4 --out ./gifs
+  vid2gif clip "https://www.youtube.com/watch?v=aqz-KE-bpKQ" --start 1:23 --end 1:30 --format gif,mp4 --out ./gifs
 
 Times are SS, MM:SS or HH:MM:SS (decimals allowed on the last part).
 `
@@ -129,7 +129,7 @@ func runDepsInstall(base string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
-	for _, name := range []string{"yt-dlp", "ffmpeg"} {
+	for _, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
 		t, ok := d[name]
 		if !ok {
 			fmt.Fprintf(stderr, "error: deps.json has no entry for %s\n", name)
@@ -172,13 +172,23 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
+	// YouTube extraction needs deno, so it is required unless --no-pin, where
+	// a missing deno just leaves yt-dlp on its own defaults.
+	deno, err := r.Resolve("deno", d["deno"], o.NoPin)
+	if err != nil {
+		if !o.NoPin {
+			fmt.Fprintln(stderr, "error:", err)
+			return 1
+		}
+		deno = ""
+	}
 	hint := ""
 	if !o.NoPin {
 		hint = fmt.Sprintf("yt-dlp is pinned at %s. If this is a site-extraction error, bump the pin in deps.json or retry with --no-pin.", d["yt-dlp"].Version)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := clip.New(ytdlp, ffmpeg, hint, stdout).Run(ctx, o); err != nil {
+	if err := clip.New(ytdlp, ffmpeg, deno, hint, stdout).Run(ctx, o); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}

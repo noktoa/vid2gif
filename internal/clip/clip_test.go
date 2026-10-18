@@ -202,7 +202,7 @@ func TestRunCancelledContextCleansUp(t *testing.T) {
 
 func TestYtdlpDownloadArgs(t *testing.T) {
 	o := Opts{URL: "-evil-url", Start: 83.5, End: 90}
-	args := ytdlpDownloadArgs(o, "/pinned/ffmpeg", "/tmp/x", true)
+	args := ytdlpDownloadArgs(o, "/pinned/ffmpeg", "", "/tmp/x", true)
 	if n := len(args); n < 2 || args[n-2] != "--" || args[n-1] != "-evil-url" {
 		t.Errorf("URL must follow `--`: %q", args)
 	}
@@ -215,13 +215,13 @@ func TestYtdlpDownloadArgs(t *testing.T) {
 	if argAfter(args, "-f") != "bv*+ba/b" || !slices.Contains(args, "--force-keyframes-at-cuts") {
 		t.Errorf("args = %q", args)
 	}
-	if got := argAfter(ytdlpDownloadArgs(o, "f", "/tmp/x", false), "-f"); got != "bv*/b" {
+	if got := argAfter(ytdlpDownloadArgs(o, "f", "", "/tmp/x", false), "-f"); got != "bv*/b" {
 		t.Errorf("video-only format = %q", got)
 	}
 }
 
 func TestYtdlpTitleArgs(t *testing.T) {
-	args := ytdlpTitleArgs("-evil-url")
+	args := ytdlpTitleArgs("-evil-url", "")
 	if n := len(args); n < 2 || args[n-2] != "--" || args[n-1] != "-evil-url" {
 		t.Errorf("URL must follow `--`: %q", args)
 	}
@@ -242,8 +242,8 @@ func TestPickClipFile(t *testing.T) {
 
 func TestYtdlpIgnoresUserConfig(t *testing.T) {
 	for label, args := range map[string][]string{
-		"title":    ytdlpTitleArgs("https://x"),
-		"download": ytdlpDownloadArgs(Opts{URL: "https://x", Start: 1, End: 2}, "ffmpeg", "tmp", false),
+		"title":    ytdlpTitleArgs("https://x", ""),
+		"download": ytdlpDownloadArgs(Opts{URL: "https://x", Start: 1, End: 2}, "ffmpeg", "", "tmp", false),
 	} {
 		if !slices.Contains(args, "--ignore-config") {
 			t.Errorf("%s args must include --ignore-config so a user's yt-dlp config cannot change a pinned run: %q", label, args)
@@ -258,4 +258,28 @@ func argAfter(args []string, key string) string {
 		}
 	}
 	return ""
+}
+
+// YouTube extraction needs a JavaScript runtime. The pinned deno is the only
+// runtime yt-dlp may use, so a deno elsewhere on the machine can't change results.
+func TestYtdlpUsesOnlyPinnedDeno(t *testing.T) {
+	o := Opts{URL: "https://x", Start: 1, End: 2}
+	for label, args := range map[string][]string{
+		"title":    ytdlpTitleArgs("https://x", "/pinned/deno"),
+		"download": ytdlpDownloadArgs(o, "ffmpeg", "/pinned/deno", "tmp", false),
+	} {
+		if argAfter(args, "--js-runtimes") != "deno:/pinned/deno" || !slices.Contains(args, "--no-js-runtimes") {
+			t.Errorf("%s args must restrict yt-dlp to the pinned deno: %q", label, args)
+		}
+		if n := len(args); args[n-2] != "--" {
+			t.Errorf("%s: URL must still follow `--`: %q", label, args)
+		}
+		if slices.Index(args, "--no-js-runtimes") > slices.Index(args, "--js-runtimes") {
+			t.Errorf("%s: --no-js-runtimes must come first or it clears the pinned deno: %q", label, args)
+		}
+	}
+	// --no-pin without any deno: leave yt-dlp's own defaults alone.
+	if args := ytdlpTitleArgs("https://x", ""); slices.Contains(args, "--js-runtimes") || slices.Contains(args, "--no-js-runtimes") {
+		t.Errorf("no deno given, but runtime flags were passed: %q", args)
+	}
 }

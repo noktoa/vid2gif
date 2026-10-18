@@ -59,9 +59,12 @@ func downloadVerified(url, wantSHA, dest string) error {
 	return nil
 }
 
+// isBinEntry matches <anything>/bin/<wantBase> (ffmpeg's layout) or
+// <wantBase> at the archive root (deno's layout).
 func isBinEntry(name, wantBase string) bool {
 	name = strings.ReplaceAll(name, "\\", "/")
-	return path.Base(name) == wantBase && path.Base(path.Dir(name)) == "bin"
+	dir := path.Dir(name)
+	return path.Base(name) == wantBase && (dir == "." || path.Base(dir) == "bin")
 }
 
 func writeExe(dest string, r io.Reader) error {
@@ -76,7 +79,7 @@ func writeExe(dest string, r io.Reader) error {
 	return err
 }
 
-// extractBinary copies the archive entry <anything>/bin/<wantBase> to dest.
+// extractBinary copies the archive entry matching isBinEntry to dest.
 func extractBinary(archivePath, kind, wantBase, dest string) error {
 	notFound := fmt.Errorf("%s not found in %s", wantBase, archivePath)
 	switch kind {
