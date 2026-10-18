@@ -70,14 +70,11 @@ func versionMatches(name, pin, out string) bool {
 	return strings.TrimSpace(out) == pin
 }
 
-func versionFlag(name string) string {
-	if name == "ffmpeg" {
-		return "-version"
-	}
-	return "--version"
-}
-
 func runVersion(path, name string) (string, error) {
-	out, err := exec.Command(path, versionFlag(name)).Output()
+	flag := "--version"
+	if name == "ffmpeg" {
+		flag = "-version"
+	}
+	out, err := exec.Command(path, flag).Output()
 	return string(out), err
 }

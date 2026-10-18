@@ -5,10 +5,8 @@ package main
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"vid2gif/internal/deps"
 )
@@ -23,10 +21,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
-	for _, name := range slices.Sorted(maps.Keys(pins)) {
-		if err := deps.Install(name, pins[name], filepath.Clean(os.Args[2]), os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s: %v\n", name, err)
-			os.Exit(1)
-		}
+	if err := deps.InstallAll(pins, filepath.Clean(os.Args[2]), os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
 	}
 }

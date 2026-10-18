@@ -52,9 +52,8 @@ func TestParseClipArgsUsageErrors(t *testing.T) {
 	}
 	for label, args := range cases {
 		_, err := parseClipArgs(args)
-		var ue usageError
-		if !errors.As(err, &ue) {
-			t.Errorf("%s: err = %v; want usageError", label, err)
+		if err == nil || errors.Is(err, flag.ErrHelp) {
+			t.Errorf("%s: err = %v; want a usage error", label, err)
 		}
 	}
 }

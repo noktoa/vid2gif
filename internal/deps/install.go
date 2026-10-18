@@ -7,11 +7,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -126,6 +128,16 @@ func extractBinary(archivePath, kind, wantBase, dest string) error {
 		}
 	}
 	return fmt.Errorf("unknown archive kind %q", kind)
+}
+
+// InstallAll installs every pinned tool into binDir, in name order.
+func InstallAll(pins Pins, binDir string, log io.Writer) error {
+	for _, name := range slices.Sorted(maps.Keys(pins)) {
+		if err := Install(name, pins[name], binDir, log); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // Install makes binDir/<name> match the pin: no-op if it already does,

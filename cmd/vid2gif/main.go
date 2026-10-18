@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -32,10 +33,6 @@ Example:
 Times are SS, MM:SS or HH:MM:SS (decimals allowed on the last part).
 `
 
-type usageError string
-
-func (e usageError) Error() string { return string(e) }
-
 // newClipFlags defines the clip flags. Its Usage is the full help text
 // (overview, example, then every flag with its default); the flag package
 // prints it on -h and on flag parse errors, and `vid2gif help` calls it too,
@@ -61,7 +58,7 @@ func newClipFlags(o *clip.Opts, start, end, formats *string) *flag.FlagSet {
 // parseClipArgs expects `<url> [flags]`.
 func parseClipArgs(args []string) (clip.Opts, error) {
 	if len(args) == 0 {
-		return clip.Opts{}, usageError("missing <url>")
+		return clip.Opts{}, errors.New("missing <url>")
 	}
 	var o clip.Opts
 	var start, end, formats string
@@ -71,40 +68,37 @@ func parseClipArgs(args []string) (clip.Opts, error) {
 		o.URL, rest = args[0], args[1:]
 	}
 	if err := fs.Parse(rest); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return o, err
-		}
-		return o, usageError(err.Error())
+		return o, err
 	}
 	if o.URL == "" {
-		return o, usageError("the URL must come first: vid2gif clip <url> --start T")
+		return o, errors.New("the URL must come first: vid2gif clip <url> --start T")
 	}
 	if fs.NArg() > 0 {
-		return o, usageError("unexpected argument " + fs.Arg(0))
+		return o, errors.New("unexpected argument " + fs.Arg(0))
 	}
 	if start == "" {
-		return o, usageError("--start is required")
+		return o, errors.New("--start is required")
 	}
 	var err error
 	if o.Start, err = naming.ParseTimestamp(start); err != nil {
-		return o, usageError("--start: " + err.Error())
+		return o, errors.New("--start: " + err.Error())
 	}
 	if end != "" { // no --end: o.End stays 0, meaning until the end of the video
 		if o.End, err = naming.ParseTimestamp(end); err != nil {
-			return o, usageError("--end: " + err.Error())
+			return o, errors.New("--end: " + err.Error())
 		}
 		if o.End <= o.Start {
-			return o, usageError("--end must be after --start")
+			return o, errors.New("--end must be after --start")
 		}
 	}
 	if o.Formats, err = naming.ParseFormats(formats); err != nil {
-		return o, usageError("--format: " + err.Error())
+		return o, errors.New("--format: " + err.Error())
 	}
 	if _, ok := encode.Presets[o.Quality]; !ok {
-		return o, usageError(fmt.Sprintf("unknown --quality %q (choose low, medium or high)", o.Quality))
+		return o, fmt.Errorf("unknown --quality %q (choose low, medium or high)", o.Quality)
 	}
 	if strings.ContainsAny(o.Name, `/\`) {
-		return o, usageError("--name must not contain path separators; use --out for the directory")
+		return o, errors.New("--name must not contain path separators; use --out for the directory")
 	}
 	return o, nil
 }
@@ -127,11 +121,8 @@ func baseDir() string {
 // deps.json, so VID2GIF_BIN=bin is exactly the default. Used by both
 // `deps install` and `clip`.
 func binDir(base string) string {
-	d := os.Getenv("VID2GIF_BIN")
-	switch {
-	case d == "":
-		return filepath.Join(base, "bin")
-	case filepath.IsAbs(d):
+	d := cmp.Or(os.Getenv("VID2GIF_BIN"), "bin")
+	if filepath.IsAbs(d) {
 		return d
 	}
 	return filepath.Join(base, d)
@@ -149,16 +140,9 @@ func runDepsInstall(base string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
-	for _, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
-		t, ok := d[name]
-		if !ok {
-			fmt.Fprintf(stderr, "error: deps.json has no entry for %s\n", name)
-			return 1
-		}
-		if err := deps.Install(name, t, binDir(base), stdout); err != nil {
-			fmt.Fprintf(stderr, "error: %s: %v\n", name, err)
-			return 1
-		}
+	if err := deps.InstallAll(d, binDir(base), stdout); err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
 	}
 	return 0
 }
@@ -174,7 +158,6 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	base := baseDir()
-	loadEnv(base)
 	d := deps.Pins{}
 	if !o.NoPin {
 		if d, err = deps.Load(filepath.Join(base, "deps.json")); err != nil {
@@ -183,26 +166,18 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	r := deps.NewResolver(binDir(base))
-	ytdlp, err := r.Resolve("yt-dlp", d["yt-dlp"], o.NoPin)
-	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
-		return 1
-	}
-	ffmpeg, err := r.Resolve("ffmpeg", d["ffmpeg"], o.NoPin)
-	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
-		return 1
-	}
 	// YouTube extraction needs deno, so it is required unless --no-pin, where
 	// a missing deno just leaves yt-dlp on its own defaults.
-	deno, err := r.Resolve("deno", d["deno"], o.NoPin)
-	if err != nil {
-		if !o.NoPin {
+	var paths [3]string
+	for i, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
+		p, err := r.Resolve(name, d[name], o.NoPin)
+		if err != nil && (!o.NoPin || name != "deno") {
 			fmt.Fprintln(stderr, "error:", err)
 			return 1
 		}
-		deno = ""
+		paths[i] = p // empty for a missing deno under --no-pin
 	}
+	ytdlp, ffmpeg, deno := paths[0], paths[1], paths[2]
 	hint := ""
 	if !o.NoPin {
 		hint = fmt.Sprintf("yt-dlp is pinned at %s. If this is a site-extraction error, bump the pin in deps.json or retry with --no-pin.", d["yt-dlp"].Version)
@@ -217,6 +192,7 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 }
 
 func realMain(args []string, stdout, stderr io.Writer) int {
+	loadEnv(baseDir())
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2
@@ -226,9 +202,7 @@ func realMain(args []string, stdout, stderr io.Writer) int {
 		return runClipCmd(args[1:], stdout, stderr)
 	case "deps":
 		if len(args) == 2 && args[1] == "install" {
-			base := baseDir()
-			loadEnv(base)
-			return runDepsInstall(base, stdout, stderr)
+			return runDepsInstall(baseDir(), stdout, stderr)
 		}
 		fmt.Fprint(stderr, usage)
 		return 2
