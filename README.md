@@ -114,6 +114,61 @@ Use `--platform linux/arm64` for arm64. It runs under emulation and is slow.
 
 On GitHub, `.github/workflows/ci.yml` runs the unit tests on every push. `integration.yml` runs the integration test on Windows, Linux amd64 and Linux arm64 every week and whenever `deps.json` or the code that uses it changes. Neither workflow contacts YouTube; the integration test only downloads the pinned tools from GitHub releases.
 
+## Architecture
+
+How the code is split up, and what talks to what:
+
+```mermaid
+flowchart LR
+    cli["cmd/vid2gif<br/>flags, exit codes"]
+    naming["internal/naming<br/>times, formats, file names"]
+    deps["internal/deps<br/>deps.json, version checks, installer"]
+    clip["internal/clip<br/>download and encode pipeline"]
+    encode["internal/encode<br/>quality presets, ffmpeg arguments"]
+    bin[("bin/<br/>yt-dlp, ffmpeg, deno")]
+    github[("GitHub releases")]
+    site[("video site")]
+
+    cli --> naming
+    cli --> deps
+    cli --> clip
+    clip --> naming
+    clip --> encode
+    deps --> bin
+    github -.->|"deps install"| deps
+    clip -->|"runs"| bin
+    bin -.->|"yt-dlp fetches the section"| site
+```
+
+What happens during one `clip` run:
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant CLI as cmd/vid2gif
+    participant Deps as internal/deps
+    participant Clip as internal/clip
+    participant YT as yt-dlp with deno
+    participant FF as ffmpeg
+
+    You->>CLI: clip URL --start 1:23
+    CLI->>CLI: validate times and flags
+    CLI->>Deps: find yt-dlp, ffmpeg and deno, check pins
+    CLI->>Clip: run
+    Clip->>YT: get the title (unless --name is set)
+    Clip->>Clip: choose file names, skip existing files
+    Clip->>YT: download only the requested section
+    YT-->>Clip: clip.mkv in a temporary folder
+    loop each format
+        Clip->>FF: encode
+        FF-->>Clip: output file in the temporary folder
+        Clip->>Clip: move it into --out
+    end
+    Clip->>Clip: remove the temporary folder
+```
+
+`deps install` is separate: it downloads the three tools from GitHub releases, checks their SHA-256 hashes, and puts them in `bin/`.
+
 ## How it works
 
 1. It checks your times and flags first, so a typo doesn't cost you a download.
