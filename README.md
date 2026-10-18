@@ -8,7 +8,7 @@ Supported platforms: Windows (amd64) and Linux (amd64, arm64).
 
 ## Quick start
 
-You need [Go](https://go.dev/dl/) to build it. You don't need yt-dlp, ffmpeg or deno installed; vid2gif fetches its own copies.
+You need [Go](https://go.dev/dl/) 1.26.2 or newer to build it. You don't need yt-dlp, ffmpeg or deno installed; vid2gif fetches its own copies.
 
 ```powershell
 go build -o vid2gif.exe ./cmd/vid2gif   # produces vid2gif.exe on Windows
@@ -16,7 +16,7 @@ go build -o vid2gif.exe ./cmd/vid2gif   # produces vid2gif.exe on Windows
 ./vid2gif clip "https://www.youtube.com/watch?v=aqz-KE-bpKQ" --start 2 --end 5
 ```
 
-That writes `gifs/<video title>_2-5.gif`. Keep `deps.json` in the same folder as the executable, because that's where vid2gif looks for it.
+That writes `gifs/<video title>_2-5.gif`. Keep `deps.json` in the same folder as the executable, because that's where vid2gif looks for it (if it isn't there, the current folder is used, which is what makes `go run ./cmd/vid2gif` work from the repo root).
 
 ## Examples
 
@@ -49,7 +49,7 @@ Run `vid2gif help` to see all of this in the terminal.
 | `--name BASE` | `<video title>_<start>-<end>` | File name without the extension. Each format adds its own. With no `--end` the end part is the word `end`, as in `title_83-end`. |
 | `--quality Q` | `medium` | `low`, `medium` or `high`. See below. |
 | `--overwrite` | off | Replace files that already exist. |
-| `--no-pin` | off | Use whatever yt-dlp, ffmpeg and deno are on your PATH and skip the version check. deno is optional here. |
+| `--no-pin` | off | Skip the version check. The tools folder is still searched first, then your PATH. deno is optional here. |
 
 Times are written as `SS`, `MM:SS` or `HH:MM:SS`. Only the last part can have decimals.
 
@@ -57,7 +57,7 @@ Without `--end` the clip runs to the end of the video. On a long video, give an 
 
 ### Existing files
 
-If an output file already exists, vid2gif skips it, tells you, and carries on with the other formats. If every file you asked for already exists, it doesn't download anything. Use `--overwrite` when you do want to replace them.
+If an output file already exists, vid2gif skips it, tells you, and carries on with the other formats. If every file you asked for already exists, it doesn't download any video (it still asks yt-dlp for the title unless you gave `--name`). Use `--overwrite` when you do want to replace them.
 
 ### Quality
 
@@ -67,7 +67,7 @@ If an output file already exists, vid2gif skips it, tells you, and carries on wi
 | `medium` | 15 fps | 480 px | 23 |
 | `high` | 24 fps | 720 px | 18 |
 
-GIFs and WebPs get fewer frames per second than the source, but the clip still plays at the same speed. Frames are dropped, not stretched. GIFs and WebPs are never scaled up, so a narrow source stays narrow. MP4 and MOV keep the original size and frame rate, and also keep the audio. GIF and WebP have no sound.
+GIFs and WebPs are resampled to the preset's frame rate (a source with a lower rate gets frames repeated), but the clip still plays at the same speed. Frames are dropped, not stretched. GIFs and WebPs are never scaled up, so a narrow source stays narrow. MP4 and MOV keep the original frame rate and size (rounded down to even numbers of pixels), and also keep the audio. GIF and WebP have no sound.
 
 ## Pinned dependencies
 
@@ -91,7 +91,7 @@ Websites change, and a pinned yt-dlp will stop working on some of them sooner or
 2. In `deps.json`, change the version, and the URL and SHA-256 for each platform. The checksums are listed in the release's `SHA2-256SUMS` file.
 3. Run `vid2gif deps install`.
 
-YouTube extraction needs a JavaScript runtime, so every `clip` run requires the pinned deno and stops with a `deps install` hint if it's missing or the wrong version. yt-dlp only uses that pinned copy, never a deno elsewhere on your machine. See yt-dlp's [EJS page](https://github.com/yt-dlp/yt-dlp/wiki/EJS) for why. deno is bumped like the others: pick a release on the [deno releases page](https://github.com/denoland/deno/releases), copy its version, URL and the checksum from the `.sha256sum` file next to each zip into `deps.json`.
+YouTube extraction needs a JavaScript runtime, so every `clip` run requires the pinned deno and stops with a `deps install` hint if it's missing or the wrong version. yt-dlp only uses the deno that vid2gif found (the pinned one, unless you pass `--no-pin`), never one it picks up by itself. See yt-dlp's [EJS page](https://github.com/yt-dlp/yt-dlp/wiki/EJS) for why. deno is bumped like the others: pick a release on the [deno releases page](https://github.com/denoland/deno/releases), copy its version, URL and the checksum from the `.sha256sum` file next to each zip into `deps.json`.
 
 ffmpeg is bumped the same way, using the dated builds from [yt-dlp/FFmpeg-Builds](https://github.com/yt-dlp/FFmpeg-Builds/releases). Older dated builds are removed from that page over time, so if `deps install` reports a 404 for ffmpeg, pick a newer build.
 
@@ -122,7 +122,7 @@ Use `--platform linux/arm64` for arm64. It runs under emulation and is slow.
 
 The integration test installs the tools into a temporary folder unless `VID2GIF_BIN` is set (see [Where the tools live](#where-the-tools-live)); set it to reuse an existing folder such as `bin/` so nothing is downloaded again.
 
-On GitHub, `.github/workflows/ci.yml` runs the unit tests on every push. `integration.yml` runs the integration test on Windows, Linux amd64 and Linux arm64 every week and whenever `deps.json` or the code that uses it changes. The pinned tools are about 250 MB, so they're cached: the Linux jobs reuse Docker layers (`build/Dockerfile.test` puts the tools in their own layer, which only rebuilds when `deps.json` or the installer changes), and the Windows job caches the tools folder. The weekly run skips those caches so it still catches a pinned download that has been removed upstream. Neither workflow contacts YouTube; the integration test only downloads the pinned tools from GitHub releases.
+On GitHub, `.github/workflows/ci.yml` checks gofmt, runs `go vet` and the unit tests on every push and pull request. `integration.yml` runs the integration test on Windows, Linux amd64 and Linux arm64 every week and whenever `deps.json` or the code that uses it changes. The pinned tools are about 250 MB, so they're cached: the Linux jobs reuse Docker layers (`build/Dockerfile.test` puts the tools in their own layer, which only rebuilds when `deps.json`, `go.mod`, `go.sum` or the installer changes), and the Windows job caches the tools folder. The weekly run skips those caches so it still catches a pinned download that has been removed upstream. Neither workflow contacts YouTube; the integration test only downloads the pinned tools from GitHub releases.
 
 ## Architecture
 
@@ -168,7 +168,7 @@ sequenceDiagram
     Clip->>YT: get the title (unless --name is set)
     Clip->>Clip: choose file names, skip existing files
     Clip->>YT: download only the requested section
-    YT-->>Clip: clip.mkv in a temporary folder
+    YT-->>Clip: the clip file in a temporary folder
     loop each format
         Clip->>FF: encode
         FF-->>Clip: output file in the temporary folder
@@ -177,7 +177,7 @@ sequenceDiagram
     Clip->>Clip: remove the temporary folder
 ```
 
-`deps install` is separate: it downloads the three tools from GitHub releases, checks their SHA-256 hashes, and puts them in `bin/`.
+The temporary folder is created inside `--out`, so the final move is a rename. `deps install` is separate: it downloads the three tools from GitHub releases, checks their SHA-256 hashes, and puts them in `bin/`.
 
 ## How it works
 
@@ -186,4 +186,4 @@ sequenceDiagram
 3. It asks yt-dlp for the video title (unless you gave `--name`), and works out which files it needs to write.
 4. It downloads only the section you asked for, once, however many formats you want.
 5. It encodes each format with ffmpeg and moves the result into your output folder.
-6. It cleans up its temporary files, including when you press Ctrl+C.
+6. It cleans up its temporary files, including when you press Ctrl+C. They live in a `.vid2gif-tmp-*` folder inside your output folder, so if the process is killed hard you can delete that folder.
