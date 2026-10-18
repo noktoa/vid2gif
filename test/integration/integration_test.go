@@ -1,6 +1,6 @@
 //go:build integration
 
-package main
+package integration
 
 import (
 	"bytes"
@@ -10,6 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"vid2gif/internal/deps"
+	"vid2gif/internal/encode"
+	"vid2gif/internal/naming"
 )
 
 func checkSignature(t *testing.T, path, format string) {
@@ -37,17 +41,17 @@ func checkSignature(t *testing.T, path, format string) {
 // Installs the pinned tools into a temp dir, checks the encoders the tool
 // relies on exist, then encodes real sources to every format.
 func TestRealToolsEncode(t *testing.T) {
-	d, err := loadDeps("deps.json")
+	d, err := deps.Load("../../deps.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	binDir := t.TempDir()
 	for _, name := range []string{"yt-dlp", "ffmpeg"} {
-		if err := installTool(name, d[name], binDir, os.Stdout); err != nil {
+		if err := deps.Install(name, d[name], binDir, os.Stdout); err != nil {
 			t.Fatalf("install %s: %v", name, err)
 		}
 	}
-	ffmpeg := filepath.Join(binDir, exeName("ffmpeg"))
+	ffmpeg := filepath.Join(binDir, deps.ExeName("ffmpeg"))
 
 	encoders, err := exec.Command(ffmpeg, "-hide_banner", "-encoders").Output()
 	if err != nil {
@@ -74,13 +78,13 @@ func TestRealToolsEncode(t *testing.T) {
 	oddNoAudio := filepath.Join(work, "odd.mkv")
 	mk("-f", "lavfi", "-i", "testsrc=duration=3:size=321x241:rate=15", "-c:v", "ffv1", "-pix_fmt", "yuv444p", oddNoAudio)
 
-	enc := ffmpegEncode(ffmpeg)
+	enc := encode.Runner(ffmpeg)
 	for _, src := range []string{withAudio, oddNoAudio} {
-		for _, format := range allFormats {
+		for _, format := range naming.AllFormats {
 			src, format := src, format
 			t.Run(fmt.Sprintf("%s-%s", filepath.Base(src), format), func(t *testing.T) {
 				out := filepath.Join(work, filepath.Base(src)+"."+format)
-				if err := enc(context.Background(), src, out, encodeOpts{format, presets["medium"]}); err != nil {
+				if err := enc(context.Background(), src, out, encode.Opts{Format: format, Preset: encode.Presets["medium"]}); err != nil {
 					t.Fatal(err)
 				}
 				checkSignature(t, out, format)

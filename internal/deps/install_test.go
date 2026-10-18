@@ -1,4 +1,4 @@
-package main
+package deps
 
 import (
 	"archive/tar"
@@ -120,12 +120,12 @@ func TestExtractBinaryTarXz(t *testing.T) {
 // installed binary untouched.
 func TestInstallToolFailureKeepsExistingBinary(t *testing.T) {
 	binDir := t.TempDir()
-	dest := filepath.Join(binDir, exeName("yt-dlp"))
+	dest := filepath.Join(binDir, ExeName("yt-dlp"))
 	os.WriteFile(dest, []byte("old binary"), 0o755)
-	tl := tool{Version: "1", Platforms: map[string]asset{
+	tl := Tool{Version: "1", Platforms: map[string]Asset{
 		platformKey(): {URL: serve(t, []byte("tampered")), SHA256: sha([]byte("original")), Archive: "none"},
 	}}
-	if err := installTool("yt-dlp", tl, binDir, io.Discard); err == nil {
+	if err := Install("yt-dlp", tl, binDir, io.Discard); err == nil {
 		t.Fatal("expected a sha256 error")
 	}
 	if got, _ := os.ReadFile(dest); string(got) != "old binary" {

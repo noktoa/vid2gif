@@ -1,4 +1,4 @@
-package main
+package clip
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"vid2gif/internal/encode"
 )
 
 type fakeState struct {
@@ -18,26 +20,26 @@ type fakeState struct {
 	encoded   []string
 }
 
-func fakePipeline(out io.Writer) (pipeline, *fakeState) {
+func fakePipeline(out io.Writer) (Pipeline, *fakeState) {
 	st := &fakeState{}
-	return pipeline{
+	return Pipeline{
 		title: func(ctx context.Context, url string) (string, error) { return "My: Video", nil },
-		download: func(ctx context.Context, o clipOpts, tmpDir string, wantAudio bool) (string, error) {
+		download: func(ctx context.Context, o Opts, tmpDir string, wantAudio bool) (string, error) {
 			st.downloads++
 			st.wantAudio = wantAudio
 			p := filepath.Join(tmpDir, "clip.mkv")
 			return p, os.WriteFile(p, []byte("src"), 0o644)
 		},
-		encode: func(ctx context.Context, in, out string, eo encodeOpts) error {
-			st.encoded = append(st.encoded, eo.format)
-			return os.WriteFile(out, []byte("data-"+eo.format), 0o644)
+		encode: func(ctx context.Context, in, out string, eo encode.Opts) error {
+			st.encoded = append(st.encoded, eo.Format)
+			return os.WriteFile(out, []byte("data-"+eo.Format), 0o644)
 		},
 		out: out,
 	}, st
 }
 
-func baseOpts(dir string, formats ...string) clipOpts {
-	return clipOpts{URL: "https://example.com/v", Start: 83, End: 88, Formats: formats, OutDir: dir, Quality: "medium"}
+func baseOpts(dir string, formats ...string) Opts {
+	return Opts{URL: "https://example.com/v", Start: 83, End: 88, Formats: formats, OutDir: dir, Quality: "medium"}
 }
 
 func dirNames(t *testing.T, dir string) []string {
@@ -57,7 +59,7 @@ func TestRunWritesAllFormats(t *testing.T) {
 	dir := t.TempDir()
 	var out bytes.Buffer
 	p, st := fakePipeline(&out)
-	if err := p.run(context.Background(), baseOpts(dir, "gif", "mp4")); err != nil {
+	if err := p.Run(context.Background(), baseOpts(dir, "gif", "mp4")); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"My__Video_83-88.gif", "My__Video_83-88.mp4"}
@@ -74,7 +76,7 @@ func TestRunWritesAllFormats(t *testing.T) {
 
 func TestRunGifOnlyDownloadsNoAudio(t *testing.T) {
 	p, st := fakePipeline(io.Discard)
-	if err := p.run(context.Background(), baseOpts(t.TempDir(), "gif", "webp")); err != nil {
+	if err := p.Run(context.Background(), baseOpts(t.TempDir(), "gif", "webp")); err != nil {
 		t.Fatal(err)
 	}
 	if st.wantAudio {
@@ -89,7 +91,7 @@ func TestRunSkipsExistingAndWritesRest(t *testing.T) {
 	p, _ := fakePipeline(&out)
 	o := baseOpts(dir, "gif", "mp4")
 	o.Name = "demo"
-	if err := p.run(context.Background(), o); err != nil {
+	if err := p.Run(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "demo.gif")); string(b) != "sentinel" {
@@ -109,7 +111,7 @@ func TestRunAllSkippedDoesNotDownload(t *testing.T) {
 	p, st := fakePipeline(io.Discard)
 	o := baseOpts(dir, "gif")
 	o.Name = "demo"
-	if err := p.run(context.Background(), o); err != nil {
+	if err := p.Run(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
 	if st.downloads != 0 {
@@ -126,7 +128,7 @@ func TestRunOverwriteReplaces(t *testing.T) {
 	p, _ := fakePipeline(io.Discard)
 	o := baseOpts(dir, "gif")
 	o.Name, o.Overwrite = "demo", true
-	if err := p.run(context.Background(), o); err != nil {
+	if err := p.Run(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "demo.gif")); string(b) != "data-gif" {
@@ -142,7 +144,7 @@ func TestRunNameGivenSkipsTitleLookup(t *testing.T) {
 	}
 	o := baseOpts(t.TempDir(), "gif")
 	o.Name = "demo"
-	if err := p.run(context.Background(), o); err != nil {
+	if err := p.Run(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -151,15 +153,15 @@ func TestRunEncodeFailureContinuesAndCleansUp(t *testing.T) {
 	dir := t.TempDir()
 	p, _ := fakePipeline(io.Discard)
 	realEncode := p.encode
-	p.encode = func(ctx context.Context, in, out string, eo encodeOpts) error {
-		if eo.format == "gif" {
+	p.encode = func(ctx context.Context, in, out string, eo encode.Opts) error {
+		if eo.Format == "gif" {
 			return errors.New("boom")
 		}
 		return realEncode(ctx, in, out, eo)
 	}
 	o := baseOpts(dir, "gif", "mp4")
 	o.Name = "demo"
-	err := p.run(context.Background(), o)
+	err := p.Run(context.Background(), o)
 	if err == nil {
 		t.Fatal("expected an error when one format fails")
 	}
@@ -171,8 +173,8 @@ func TestRunEncodeFailureContinuesAndCleansUp(t *testing.T) {
 func TestRunDownloadFailureLeavesNothing(t *testing.T) {
 	dir := t.TempDir()
 	p, _ := fakePipeline(io.Discard)
-	p.download = func(context.Context, clipOpts, string, bool) (string, error) { return "", errors.New("network down") }
-	if err := p.run(context.Background(), baseOpts(dir, "gif")); err == nil {
+	p.download = func(context.Context, Opts, string, bool) (string, error) { return "", errors.New("network down") }
+	if err := p.Run(context.Background(), baseOpts(dir, "gif")); err == nil {
 		t.Fatal("expected error")
 	}
 	if got := dirNames(t, dir); len(got) != 0 {
@@ -185,12 +187,12 @@ func TestRunCancelledContextCleansUp(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p, _ := fakePipeline(io.Discard)
 	realDownload := p.download
-	p.download = func(c context.Context, o clipOpts, tmp string, a bool) (string, error) {
+	p.download = func(c context.Context, o Opts, tmp string, a bool) (string, error) {
 		f, err := realDownload(c, o, tmp, a)
 		cancel() // Ctrl+C arrives right after the download
 		return f, err
 	}
-	if err := p.run(ctx, baseOpts(dir, "gif", "mp4")); !errors.Is(err, context.Canceled) {
+	if err := p.Run(ctx, baseOpts(dir, "gif", "mp4")); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v; want context.Canceled", err)
 	}
 	if got := dirNames(t, dir); len(got) != 0 {
@@ -199,7 +201,7 @@ func TestRunCancelledContextCleansUp(t *testing.T) {
 }
 
 func TestYtdlpDownloadArgs(t *testing.T) {
-	o := clipOpts{URL: "-evil-url", Start: 83.5, End: 90}
+	o := Opts{URL: "-evil-url", Start: 83.5, End: 90}
 	args := ytdlpDownloadArgs(o, "/pinned/ffmpeg", "/tmp/x", true)
 	if n := len(args); n < 2 || args[n-2] != "--" || args[n-1] != "-evil-url" {
 		t.Errorf("URL must follow `--`: %q", args)
@@ -241,10 +243,19 @@ func TestPickClipFile(t *testing.T) {
 func TestYtdlpIgnoresUserConfig(t *testing.T) {
 	for label, args := range map[string][]string{
 		"title":    ytdlpTitleArgs("https://x"),
-		"download": ytdlpDownloadArgs(clipOpts{URL: "https://x", Start: 1, End: 2}, "ffmpeg", "tmp", false),
+		"download": ytdlpDownloadArgs(Opts{URL: "https://x", Start: 1, End: 2}, "ffmpeg", "tmp", false),
 	} {
 		if !slices.Contains(args, "--ignore-config") {
 			t.Errorf("%s args must include --ignore-config so a user's yt-dlp config cannot change a pinned run: %q", label, args)
 		}
 	}
+}
+
+func argAfter(args []string, key string) string {
+	for i, a := range args {
+		if a == key && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }

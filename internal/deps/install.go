@@ -1,4 +1,4 @@
-package main
+package deps
 
 import (
 	"archive/tar"
@@ -125,14 +125,14 @@ func extractBinary(archivePath, kind, wantBase, dest string) error {
 	return fmt.Errorf("unknown archive kind %q", kind)
 }
 
-// installTool makes binDir/<name> match the pin: no-op if it already does,
+// Install makes binDir/<name> match the pin: no-op if it already does,
 // otherwise download, verify, extract and re-check the version.
-func installTool(name string, t tool, binDir string, log io.Writer) error {
-	a, err := t.assetFor(platformKey())
+func Install(name string, t Tool, binDir string, log io.Writer) error {
+	a, err := t.AssetFor(platformKey())
 	if err != nil {
 		return err
 	}
-	exe := exeName(name)
+	exe := ExeName(name)
 	dest := filepath.Join(binDir, exe)
 	if out, err := runVersion(dest, name); err == nil && versionMatches(name, t.Version, out) {
 		fmt.Fprintf(log, "%s %s already installed\n", name, t.Version)

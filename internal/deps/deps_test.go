@@ -1,4 +1,4 @@
-package main
+package deps
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestRealDepsJSON(t *testing.T) {
-	d, err := loadDeps("deps.json")
+	d, err := Load("../../deps.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestRealDepsJSON(t *testing.T) {
 			t.Fatalf("%s missing or has no version", name)
 		}
 		for _, key := range []string{"windows-amd64", "linux-amd64", "linux-arm64"} {
-			a, err := tl.assetFor(key)
+			a, err := tl.AssetFor(key)
 			if err != nil {
 				t.Fatalf("%s %s: %v", name, key, err)
 			}
@@ -34,7 +34,7 @@ func TestRealDepsJSON(t *testing.T) {
 }
 
 func TestAssetForUnsupportedPlatform(t *testing.T) {
-	_, err := tool{Platforms: map[string]asset{}}.assetFor("darwin-arm64")
+	_, err := Tool{Platforms: map[string]Asset{}}.AssetFor("darwin-arm64")
 	if err == nil || !strings.Contains(err.Error(), "unsupported platform darwin-arm64") || !strings.Contains(err.Error(), "--no-pin") {
 		t.Errorf("err = %v", err)
 	}
@@ -60,10 +60,10 @@ func TestVersionMatches(t *testing.T) {
 	}
 }
 
-var ytTool = tool{Version: "2026.08.19"}
+var ytTool = Tool{Version: "2026.08.19"}
 
-func resolverWith(baseDir string, pathHit string, ver string) resolver {
-	return resolver{
+func resolverWith(baseDir string, pathHit string, ver string) Resolver {
+	return Resolver{
 		baseDir: baseDir,
 		lookPath: func(string) (string, error) {
 			if pathHit == "" {
@@ -81,7 +81,7 @@ func makeBin(t *testing.T, base, name string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(dir, exeName(name))
+	p := filepath.Join(dir, ExeName(name))
 	if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -91,21 +91,21 @@ func makeBin(t *testing.T, base, name string) string {
 func TestResolvePrefersBin(t *testing.T) {
 	base := t.TempDir()
 	want := makeBin(t, base, "yt-dlp")
-	got, err := resolverWith(base, "/usr/bin/yt-dlp", "2026.08.19\n").resolve("yt-dlp", ytTool, false)
+	got, err := resolverWith(base, "/usr/bin/yt-dlp", "2026.08.19\n").Resolve("yt-dlp", ytTool, false)
 	if err != nil || got != want {
 		t.Errorf("got %q, %v; want %q", got, err, want)
 	}
 }
 
 func TestResolveFallsBackToPath(t *testing.T) {
-	got, err := resolverWith(t.TempDir(), "/usr/bin/yt-dlp", "2026.08.19\n").resolve("yt-dlp", ytTool, false)
+	got, err := resolverWith(t.TempDir(), "/usr/bin/yt-dlp", "2026.08.19\n").Resolve("yt-dlp", ytTool, false)
 	if err != nil || got != "/usr/bin/yt-dlp" {
 		t.Errorf("got %q, %v", got, err)
 	}
 }
 
 func TestResolveMismatch(t *testing.T) {
-	_, err := resolverWith(t.TempDir(), "/usr/bin/yt-dlp", "2025.01.01\n").resolve("yt-dlp", ytTool, false)
+	_, err := resolverWith(t.TempDir(), "/usr/bin/yt-dlp", "2025.01.01\n").Resolve("yt-dlp", ytTool, false)
 	if err == nil || !strings.Contains(err.Error(), "pinned 2026.08.19") || !strings.Contains(err.Error(), "found 2025.01.01") || !strings.Contains(err.Error(), "deps install") {
 		t.Errorf("err = %v", err)
 	}
@@ -117,14 +117,14 @@ func TestResolveNoPinSkipsVersionCheck(t *testing.T) {
 		t.Fatal("version must not be checked with --no-pin")
 		return "", nil
 	}
-	got, err := r.resolve("yt-dlp", tool{}, true)
+	got, err := r.Resolve("yt-dlp", Tool{}, true)
 	if err != nil || got != "/usr/bin/yt-dlp" {
 		t.Errorf("got %q, %v", got, err)
 	}
 }
 
 func TestResolveNotFound(t *testing.T) {
-	_, err := resolverWith(t.TempDir(), "", "").resolve("yt-dlp", ytTool, false)
+	_, err := resolverWith(t.TempDir(), "", "").Resolve("yt-dlp", ytTool, false)
 	if err == nil || !strings.Contains(err.Error(), "deps install") {
 		t.Errorf("err = %v", err)
 	}

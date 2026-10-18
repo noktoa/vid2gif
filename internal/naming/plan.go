@@ -1,4 +1,4 @@
-package main
+package naming
 
 import (
 	"fmt"
@@ -9,13 +9,13 @@ import (
 	"unicode"
 )
 
-var allFormats = []string{"gif", "webp", "mp4", "mov"}
+var AllFormats = []string{"gif", "webp", "mp4", "mov"}
 
-func parseFormats(s string) ([]string, error) {
+func ParseFormats(s string) ([]string, error) {
 	var out []string
 	for _, f := range strings.Split(s, ",") {
 		f = strings.ToLower(strings.TrimSpace(f))
-		if !slices.Contains(allFormats, f) {
+		if !slices.Contains(AllFormats, f) {
 			return nil, fmt.Errorf("unknown format %q (choose from gif, webp, mp4, mov)", f)
 		}
 		if !slices.Contains(out, f) {
@@ -54,19 +54,19 @@ func sanitizeTitle(s string) string {
 	return s
 }
 
-func buildName(title string, start, end float64) string {
-	return sanitizeTitle(title) + "_" + fmtSeconds(start) + "-" + fmtSeconds(end)
+func BuildName(title string, start, end float64) string {
+	return sanitizeTitle(title) + "_" + FmtSeconds(start) + "-" + FmtSeconds(end)
 }
 
-func outPath(outDir, name, format string) string {
+func OutPath(outDir, name, format string) string {
 	return filepath.Join(outDir, name+"."+format)
 }
 
-// planOutputs splits formats into those to write and those skipped because
+// PlanOutputs splits formats into those to write and those skipped because
 // the output file already exists (unless overwrite is set).
-func planOutputs(outDir, name string, formats []string, overwrite bool) (todo, skipped []string) {
+func PlanOutputs(outDir, name string, formats []string, overwrite bool) (todo, skipped []string) {
 	for _, f := range formats {
-		if _, err := os.Stat(outPath(outDir, name, f)); err == nil && !overwrite {
+		if _, err := os.Stat(OutPath(outDir, name, f)); err == nil && !overwrite {
 			skipped = append(skipped, f)
 		} else {
 			todo = append(todo, f)

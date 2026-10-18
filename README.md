@@ -11,8 +11,8 @@ Supported platforms: Windows (amd64) and Linux (amd64, arm64).
 You need [Go](https://go.dev/dl/) to build it. You don't need yt-dlp or ffmpeg installed; vid2gif fetches its own copies.
 
 ```
-go build -o vid2gif .        # produces vid2gif.exe on Windows
-./vid2gif deps install       # one-time: downloads the pinned yt-dlp and ffmpeg into ./bin
+go build -o vid2gif ./cmd/vid2gif   # produces vid2gif.exe on Windows
+./vid2gif deps install            # one-time: downloads the pinned yt-dlp and ffmpeg into ./bin
 ./vid2gif clip "https://www.youtube.com/watch?v=jNQXAC9IJRQ" --start 2 --end 5
 ```
 
@@ -98,7 +98,7 @@ go test ./...
 runs the unit tests. They don't need yt-dlp, ffmpeg or a network connection.
 
 ```
-go test -tags integration -run TestRealToolsEncode -v -timeout 30m ./...
+go test -tags integration -v -timeout 30m ./test/integration/
 ```
 
 installs the pinned tools into a temporary folder and encodes real test videos to every format. The first run downloads about 200 MB.
@@ -106,7 +106,7 @@ installs the pinned tools into a temporary folder and encodes real test videos t
 To run the same test on Linux from a Windows machine, with Docker:
 
 ```
-docker build --platform linux/amd64 -f Dockerfile.test -t vid2gif-test .
+docker build --platform linux/amd64 -f build/Dockerfile.test -t vid2gif-test .
 docker run --rm vid2gif-test
 ```
 

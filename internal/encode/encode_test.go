@@ -1,4 +1,4 @@
-package main
+package encode
 
 import (
 	"slices"
@@ -15,7 +15,7 @@ func argAfter(args []string, key string) string {
 }
 
 func TestFfmpegArgsGifMedium(t *testing.T) {
-	got := ffmpegArgs("in.mkv", "out.gif", encodeOpts{"gif", presets["medium"]})
+	got := Args("in.mkv", "out.gif", Opts{"gif", Presets["medium"]})
 	want := []string{
 		"-hide_banner", "-loglevel", "error", "-y", "-i", "in.mkv", "-an",
 		"-vf", "fps=15,scale=w='min(480,iw)':h=-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=bayer",
@@ -27,7 +27,7 @@ func TestFfmpegArgsGifMedium(t *testing.T) {
 }
 
 func TestFfmpegArgsGifHigh(t *testing.T) {
-	vf := argAfter(ffmpegArgs("in", "out.gif", encodeOpts{"gif", presets["high"]}), "-vf")
+	vf := argAfter(Args("in", "out.gif", Opts{"gif", Presets["high"]}), "-vf")
 	want := "fps=24,scale=w='min(720,iw)':h=-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=sierra2_4a"
 	if vf != want {
 		t.Errorf("vf = %q; want %q", vf, want)
@@ -35,7 +35,7 @@ func TestFfmpegArgsGifHigh(t *testing.T) {
 }
 
 func TestFfmpegArgsWebp(t *testing.T) {
-	got := ffmpegArgs("in", "out.webp", encodeOpts{"webp", presets["high"]})
+	got := Args("in", "out.webp", Opts{"webp", Presets["high"]})
 	if argAfter(got, "-vf") != "fps=24,scale=w='min(720,iw)':h=-1:flags=lanczos" {
 		t.Errorf("vf = %q", argAfter(got, "-vf"))
 	}
@@ -48,7 +48,7 @@ func TestFfmpegArgsWebp(t *testing.T) {
 }
 
 func TestFfmpegArgsMp4KeepsSource(t *testing.T) {
-	got := ffmpegArgs("in.mkv", "out.mp4", encodeOpts{"mp4", presets["medium"]})
+	got := Args("in.mkv", "out.mp4", Opts{"mp4", Presets["medium"]})
 	want := []string{
 		"-hide_banner", "-loglevel", "error", "-y", "-i", "in.mkv",
 		"-c:v", "libx264", "-crf", "23", "-preset", "medium", "-pix_fmt", "yuv420p",
@@ -61,7 +61,7 @@ func TestFfmpegArgsMp4KeepsSource(t *testing.T) {
 }
 
 func TestFfmpegArgsMovLowCRF(t *testing.T) {
-	got := ffmpegArgs("in", "out.mov", encodeOpts{"mov", presets["low"]})
+	got := Args("in", "out.mov", Opts{"mov", Presets["low"]})
 	if argAfter(got, "-crf") != "28" {
 		t.Errorf("crf = %q; want 28", argAfter(got, "-crf"))
 	}

@@ -1,4 +1,5 @@
-package main
+// Package clip downloads a segment with yt-dlp and encodes it to the requested formats.
+package clip
 
 import (
 	"context"
@@ -9,9 +10,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"vid2gif/internal/encode"
+	"vid2gif/internal/naming"
 )
 
-type clipOpts struct {
+// Opts is one clip request, already validated by the CLI.
+type Opts struct {
 	URL        string
 	Start, End float64
 	Formats    []string
@@ -22,27 +27,27 @@ type clipOpts struct {
 	NoPin      bool
 }
 
-// pipeline holds the side-effecting steps as fields so run() is testable
-// with fakes; newPipeline wires in the real yt-dlp and ffmpeg.
-type pipeline struct {
+// Pipeline holds the side-effecting steps as fields so run() is testable
+// with fakes; New wires in the real yt-dlp and ffmpeg.
+type Pipeline struct {
 	title    func(ctx context.Context, url string) (string, error)
-	download func(ctx context.Context, o clipOpts, tmpDir string, wantAudio bool) (string, error)
-	encode   func(ctx context.Context, in, out string, eo encodeOpts) error
+	download func(ctx context.Context, o Opts, tmpDir string, wantAudio bool) (string, error)
+	encode   func(ctx context.Context, in, out string, eo encode.Opts) error
 	out      io.Writer
 }
 
-func (p pipeline) run(ctx context.Context, o clipOpts) error {
+func (p Pipeline) Run(ctx context.Context, o Opts) error {
 	name := o.Name
 	if name == "" {
 		title, err := p.title(ctx, o.URL)
 		if err != nil {
 			return fmt.Errorf("fetching title: %w", err)
 		}
-		name = buildName(title, o.Start, o.End)
+		name = naming.BuildName(title, o.Start, o.End)
 	}
-	todo, skipped := planOutputs(o.OutDir, name, o.Formats, o.Overwrite)
+	todo, skipped := naming.PlanOutputs(o.OutDir, name, o.Formats, o.Overwrite)
 	for _, f := range skipped {
-		fmt.Fprintf(p.out, "skipped %s (already exists; use --overwrite to replace)\n", outPath(o.OutDir, name, f))
+		fmt.Fprintf(p.out, "skipped %s (already exists; use --overwrite to replace)\n", naming.OutPath(o.OutDir, name, f))
 	}
 	if len(todo) == 0 {
 		fmt.Fprintf(p.out, "wrote 0, skipped %d\n", len(skipped))
@@ -68,9 +73,9 @@ func (p pipeline) run(ctx context.Context, o clipOpts) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		final := outPath(o.OutDir, name, f)
+		final := naming.OutPath(o.OutDir, name, f)
 		part := filepath.Join(tmp, name+"."+f)
-		if err := p.encode(ctx, clip, part, encodeOpts{f, presets[o.Quality]}); err != nil {
+		if err := p.encode(ctx, clip, part, encode.Opts{Format: f, Preset: encode.Presets[o.Quality]}); err != nil {
 			fmt.Fprintf(p.out, "failed %s: %v\n", final, err)
 			failed++
 			continue
@@ -103,7 +108,7 @@ func ytdlpTitleArgs(url string) []string {
 // ytdlpDownloadArgs downloads just [Start, End]. --ffmpeg-location is
 // mandatory so yt-dlp uses the pinned ffmpeg, and the URL follows `--` so a
 // value starting with "-" is never read as an option.
-func ytdlpDownloadArgs(o clipOpts, ffmpegPath, tmpDir string, wantAudio bool) []string {
+func ytdlpDownloadArgs(o Opts, ffmpegPath, tmpDir string, wantAudio bool) []string {
 	format := "bv*/b"
 	if wantAudio {
 		format = "bv*+ba/b"
@@ -111,7 +116,7 @@ func ytdlpDownloadArgs(o clipOpts, ffmpegPath, tmpDir string, wantAudio bool) []
 	return []string{
 		"--ignore-config", "--no-playlist",
 		"-f", format,
-		"--download-sections", fmt.Sprintf("*%s-%s", fmtSeconds(o.Start), fmtSeconds(o.End)),
+		"--download-sections", fmt.Sprintf("*%s-%s", naming.FmtSeconds(o.Start), naming.FmtSeconds(o.End)),
 		"--force-keyframes-at-cuts",
 		"--merge-output-format", "mkv",
 		"--ffmpeg-location", ffmpegPath,
@@ -142,20 +147,10 @@ func withHint(err error, hint string) error {
 	return fmt.Errorf("%w\n%s", err, hint)
 }
 
-func ffmpegEncode(ffmpeg string) func(ctx context.Context, in, out string, eo encodeOpts) error {
-	return func(ctx context.Context, in, out string, eo encodeOpts) error {
-		b, err := exec.CommandContext(ctx, ffmpeg, ffmpegArgs(in, out, eo)...).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("ffmpeg: %w\n%s", err, strings.TrimSpace(string(b)))
-		}
-		return nil
-	}
-}
-
-// newPipeline wires in the real tools. hint is appended to yt-dlp failures
+// New wires in the real tools. hint is appended to yt-dlp failures
 // (e.g. how to bump the pin).
-func newPipeline(ytdlp, ffmpeg, hint string, out io.Writer) pipeline {
-	return pipeline{
+func New(ytdlp, ffmpeg, hint string, out io.Writer) Pipeline {
+	return Pipeline{
 		title: func(ctx context.Context, url string) (string, error) {
 			cmd := exec.CommandContext(ctx, ytdlp, ytdlpTitleArgs(url)...)
 			cmd.Stderr = os.Stderr
@@ -163,9 +158,10 @@ func newPipeline(ytdlp, ffmpeg, hint string, out io.Writer) pipeline {
 			if err != nil {
 				return "", withHint(fmt.Errorf("yt-dlp: %w", err), hint)
 			}
-			return firstLine(string(b)), nil
+			title, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+			return strings.TrimSpace(title), nil
 		},
-		download: func(ctx context.Context, o clipOpts, tmpDir string, wantAudio bool) (string, error) {
+		download: func(ctx context.Context, o Opts, tmpDir string, wantAudio bool) (string, error) {
 			cmd := exec.CommandContext(ctx, ytdlp, ytdlpDownloadArgs(o, ffmpeg, tmpDir, wantAudio)...)
 			cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 			if err := cmd.Run(); err != nil {
@@ -173,7 +169,7 @@ func newPipeline(ytdlp, ffmpeg, hint string, out io.Writer) pipeline {
 			}
 			return pickClipFile(tmpDir)
 		},
-		encode: ffmpegEncode(ffmpeg),
+		encode: encode.Runner(ffmpeg),
 		out:    out,
 	}
 }

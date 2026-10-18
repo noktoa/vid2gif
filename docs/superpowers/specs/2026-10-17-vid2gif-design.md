@@ -175,20 +175,19 @@ Go's standard library has no xz decompressor and the Linux ffmpeg builds ship on
 ## Layout
 
 ```
-main.go          subcommand dispatch, flag parsing, exit codes
-clip.go          download / encode pipeline, yt-dlp and ffmpeg wiring
-plan.go          formats, file names, skip-existing planning
-encode.go        quality presets, ffmpeg argument builder
-deps.go          deps.json, version matching, tool resolution
-install.go       download + SHA-256 + extract + install
-timestamp.go     timestamp parsing and formatting
-deps.json        pins
-Dockerfile.test  Linux integration tests
-*_test.go        unit tests; integration_test.go behind the integration build tag
-README.md        usage, pin bumping, supported platforms, licensing note
+cmd/vid2gif/main.go          subcommand dispatch, flag parsing, exit codes
+internal/clip/clip.go        download / encode pipeline, yt-dlp wiring
+internal/encode/encode.go    quality presets, ffmpeg argument builder and runner
+internal/naming/             timestamps (timestamp.go), formats, file names, skip-existing planning (plan.go)
+internal/deps/               deps.json, version matching, tool resolution (deps.go); download, SHA-256, extract, install (install.go)
+test/integration/            real-tools test behind the integration build tag
+build/Dockerfile.test        Linux integration tests (build context is the repo root)
+deps.json                    pins, next to the built executable
+*_test.go                    unit tests, next to the code they cover
+README.md                    usage, pin bumping, supported platforms, licensing note
 ```
 
-All code is `package main`. The Go module is named `vid2gif` (renameable to a hosting path such as `github.com/<owner>/vid2gif` before publishing).
+`main` is the only `package main`; everything else is under `internal/`. The Go module is named `vid2gif` (renameable to a hosting path such as `github.com/<owner>/vid2gif` before publishing).
 
 ## Risks and assumptions
 

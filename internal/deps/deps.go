@@ -1,4 +1,5 @@
-package main
+// Package deps reads deps.json, finds the pinned yt-dlp and ffmpeg, and installs them.
+package deps
 
 import (
 	"encoding/json"
@@ -10,25 +11,25 @@ import (
 	"strings"
 )
 
-type asset struct {
+type Asset struct {
 	URL     string `json:"url"`
 	SHA256  string `json:"sha256"`
 	Archive string `json:"archive"` // none | zip | tar.xz
 }
 
-type tool struct {
+type Tool struct {
 	Version   string           `json:"version"`
-	Platforms map[string]asset `json:"platforms"`
+	Platforms map[string]Asset `json:"platforms"`
 }
 
-type deps map[string]tool
+type Pins map[string]Tool
 
-func loadDeps(path string) (deps, error) {
+func Load(path string) (Pins, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var d deps
+	var d Pins
 	if err := json.Unmarshal(b, &d); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -37,15 +38,15 @@ func loadDeps(path string) (deps, error) {
 
 func platformKey() string { return runtime.GOOS + "-" + runtime.GOARCH }
 
-func (t tool) assetFor(key string) (asset, error) {
+func (t Tool) AssetFor(key string) (Asset, error) {
 	a, ok := t.Platforms[key]
 	if !ok {
-		return asset{}, fmt.Errorf("unsupported platform %s; use --no-pin with your own yt-dlp and ffmpeg on PATH", key)
+		return Asset{}, fmt.Errorf("unsupported platform %s; use --no-pin with your own yt-dlp and ffmpeg on PATH", key)
 	}
 	return a, nil
 }
 
-func exeName(name string) string {
+func ExeName(name string) string {
 	if runtime.GOOS == "windows" {
 		return name + ".exe"
 	}
@@ -79,21 +80,21 @@ func runVersion(path, name string) (string, error) {
 	return string(out), err
 }
 
-// resolver finds a tool (bin/ next to deps.json first, then PATH) and, unless
+// Resolver finds a tool (bin/ next to deps.json first, then PATH) and, unless
 // noPin, checks it against the pinned version.
-type resolver struct {
+type Resolver struct {
 	baseDir  string
 	lookPath func(string) (string, error)
 	version  func(path, name string) (string, error)
 }
 
-func newResolver(baseDir string) resolver {
-	return resolver{baseDir: baseDir, lookPath: exec.LookPath, version: runVersion}
+func NewResolver(baseDir string) Resolver {
+	return Resolver{baseDir: baseDir, lookPath: exec.LookPath, version: runVersion}
 }
 
-func (r resolver) resolve(name string, t tool, noPin bool) (string, error) {
+func (r Resolver) Resolve(name string, t Tool, noPin bool) (string, error) {
 	binDir := filepath.Join(r.baseDir, "bin")
-	path := filepath.Join(binDir, exeName(name))
+	path := filepath.Join(binDir, ExeName(name))
 	if _, err := os.Stat(path); err != nil {
 		p, err := r.lookPath(name)
 		if err != nil {

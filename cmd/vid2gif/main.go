@@ -10,6 +10,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+
+	"vid2gif/internal/clip"
+	"vid2gif/internal/deps"
+	"vid2gif/internal/encode"
+	"vid2gif/internal/naming"
 )
 
 const usage = `vid2gif - turn a segment of an online video into a GIF, WebP, MP4 or MOV
@@ -34,7 +39,7 @@ func (e usageError) Error() string { return string(e) }
 // (overview, example, then every flag with its default); the flag package
 // prints it on -h and on flag parse errors, and `vid2gif help` calls it too,
 // so the flag list can never drift from the code.
-func newClipFlags(o *clipOpts, start, end, formats *string) *flag.FlagSet {
+func newClipFlags(o *clip.Opts, start, end, formats *string) *flag.FlagSet {
 	fs := flag.NewFlagSet("clip", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(start, "start", "", "start time: SS, MM:SS or HH:MM:SS (required)")
@@ -53,11 +58,11 @@ func newClipFlags(o *clipOpts, start, end, formats *string) *flag.FlagSet {
 }
 
 // parseClipArgs expects `<url> [flags]`.
-func parseClipArgs(args []string) (clipOpts, error) {
+func parseClipArgs(args []string) (clip.Opts, error) {
 	if len(args) == 0 {
-		return clipOpts{}, usageError("missing <url>")
+		return clip.Opts{}, usageError("missing <url>")
 	}
-	var o clipOpts
+	var o clip.Opts
 	var start, end, formats string
 	fs := newClipFlags(&o, &start, &end, &formats)
 	rest := args
@@ -80,23 +85,23 @@ func parseClipArgs(args []string) (clipOpts, error) {
 		return o, usageError("--start is required")
 	}
 	var err error
-	if o.Start, err = parseTimestamp(start); err != nil {
+	if o.Start, err = naming.ParseTimestamp(start); err != nil {
 		return o, usageError("--start: " + err.Error())
 	}
 	if end == "" {
 		o.End = o.Start + 5
 	} else {
-		if o.End, err = parseTimestamp(end); err != nil {
+		if o.End, err = naming.ParseTimestamp(end); err != nil {
 			return o, usageError("--end: " + err.Error())
 		}
 		if o.End <= o.Start {
 			return o, usageError("--end must be after --start")
 		}
 	}
-	if o.Formats, err = parseFormats(formats); err != nil {
+	if o.Formats, err = naming.ParseFormats(formats); err != nil {
 		return o, usageError("--format: " + err.Error())
 	}
-	if _, ok := presets[o.Quality]; !ok {
+	if _, ok := encode.Presets[o.Quality]; !ok {
 		return o, usageError(fmt.Sprintf("unknown --quality %q (choose low, medium or high)", o.Quality))
 	}
 	if strings.ContainsAny(o.Name, `/\`) {
@@ -119,7 +124,7 @@ func baseDir() string {
 }
 
 func runDepsInstall(base string, stdout, stderr io.Writer) int {
-	d, err := loadDeps(filepath.Join(base, "deps.json"))
+	d, err := deps.Load(filepath.Join(base, "deps.json"))
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
@@ -130,7 +135,7 @@ func runDepsInstall(base string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error: deps.json has no entry for %s\n", name)
 			return 1
 		}
-		if err := installTool(name, t, filepath.Join(base, "bin"), stdout); err != nil {
+		if err := deps.Install(name, t, filepath.Join(base, "bin"), stdout); err != nil {
 			fmt.Fprintf(stderr, "error: %s: %v\n", name, err)
 			return 1
 		}
@@ -149,20 +154,20 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	base := baseDir()
-	d := deps{}
+	d := deps.Pins{}
 	if !o.NoPin {
-		if d, err = loadDeps(filepath.Join(base, "deps.json")); err != nil {
+		if d, err = deps.Load(filepath.Join(base, "deps.json")); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
 			return 1
 		}
 	}
-	r := newResolver(base)
-	ytdlp, err := r.resolve("yt-dlp", d["yt-dlp"], o.NoPin)
+	r := deps.NewResolver(base)
+	ytdlp, err := r.Resolve("yt-dlp", d["yt-dlp"], o.NoPin)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
-	ffmpeg, err := r.resolve("ffmpeg", d["ffmpeg"], o.NoPin)
+	ffmpeg, err := r.Resolve("ffmpeg", d["ffmpeg"], o.NoPin)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
@@ -173,7 +178,7 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := newPipeline(ytdlp, ffmpeg, hint, stdout).run(ctx, o); err != nil {
+	if err := clip.New(ytdlp, ffmpeg, hint, stdout).Run(ctx, o); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
@@ -195,7 +200,7 @@ func realMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, usage)
 		return 2
 	case "help", "-h", "--help":
-		fs := newClipFlags(&clipOpts{}, new(string), new(string), new(string))
+		fs := newClipFlags(&clip.Opts{}, new(string), new(string), new(string))
 		fs.SetOutput(stdout)
 		fs.Usage()
 		return 0
