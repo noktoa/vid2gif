@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"testing"
 
 	"vid2gif/internal/deps"
@@ -35,6 +38,27 @@ func checkSignature(t *testing.T, path, format string) {
 		if string(b[4:8]) != "ftyp" {
 			t.Errorf("%s: no ftyp box", path)
 		}
+	}
+}
+
+var decodedTime = regexp.MustCompile(`time=(\d+):(\d+):(\d+\.\d+)`)
+
+// checkDuration decodes the output with ffmpeg and compares its playback
+// length with the source. Lowering the frame rate for GIF/WebP must drop
+// frames, not change how fast the clip plays.
+func checkDuration(t *testing.T, ffmpeg, path string, want float64) {
+	t.Helper()
+	out, _ := exec.Command(ffmpeg, "-hide_banner", "-i", path, "-f", "null", "-").CombinedOutput()
+	m := decodedTime.FindAllStringSubmatch(string(out), -1)
+	if len(m) == 0 {
+		t.Fatalf("%s: no decoded time in ffmpeg output:\n%s", path, out)
+	}
+	last := m[len(m)-1]
+	h, _ := strconv.Atoi(last[1])
+	min, _ := strconv.Atoi(last[2])
+	sec, _ := strconv.ParseFloat(last[3], 64)
+	if got := float64(h*3600+min*60) + sec; math.Abs(got-want) > 0.15 {
+		t.Errorf("%s plays for %.2fs; the source is %.2fs (speed must not change)", path, got, want)
 	}
 }
 
@@ -83,8 +107,12 @@ func TestRealToolsEncode(t *testing.T) {
 	oddNoAudio := filepath.Join(work, "odd.mkv")
 	mk("-f", "lavfi", "-i", "testsrc=duration=3:size=321x241:rate=15", "-c:v", "ffv1", "-pix_fmt", "yuv444p", oddNoAudio)
 
+	// 30 fps source: the medium preset resamples GIF/WebP to 15 fps.
+	fast30 := filepath.Join(work, "fast30.mp4")
+	mk("-f", "lavfi", "-i", "testsrc=duration=3:size=320x240:rate=30", "-c:v", "libx264", "-pix_fmt", "yuv420p", fast30)
+
 	enc := encode.Runner(ffmpeg)
-	for _, src := range []string{withAudio, oddNoAudio} {
+	for _, src := range []string{withAudio, oddNoAudio, fast30} {
 		for _, format := range naming.AllFormats {
 			src, format := src, format
 			t.Run(fmt.Sprintf("%s-%s", filepath.Base(src), format), func(t *testing.T) {
@@ -93,6 +121,7 @@ func TestRealToolsEncode(t *testing.T) {
 					t.Fatal(err)
 				}
 				checkSignature(t, out, format)
+				checkDuration(t, ffmpeg, out, 3)
 			})
 		}
 	}

@@ -67,7 +67,7 @@ If an output file already exists, vid2gif skips it, tells you, and carries on wi
 | `medium` | 15 fps | 480 px | 23 |
 | `high` | 24 fps | 720 px | 18 |
 
-GIFs and WebPs are never scaled up, so a narrow source stays narrow. MP4 and MOV keep the original size and frame rate, and also keep the audio. GIF and WebP have no sound.
+GIFs and WebPs get fewer frames per second than the source, but the clip still plays at the same speed. Frames are dropped, not stretched. GIFs and WebPs are never scaled up, so a narrow source stays narrow. MP4 and MOV keep the original size and frame rate, and also keep the audio. GIF and WebP have no sound.
 
 ## Pinned dependencies
 
