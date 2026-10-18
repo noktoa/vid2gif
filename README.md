@@ -83,6 +83,8 @@ Websites change, and a pinned yt-dlp will stop working on some of them sooner or
 2. In `deps.json`, change the version, and the URL and SHA-256 for each platform. The checksums are listed in the release's `SHA2-256SUMS` file.
 3. Run `vid2gif deps install`.
 
+YouTube links can also fail if yt-dlp can't find a JavaScript runtime. It prints a warning when that's the case; installing [deno](https://deno.com) is the usual fix.
+
 ffmpeg is bumped the same way, using the dated builds from [yt-dlp/FFmpeg-Builds](https://github.com/yt-dlp/FFmpeg-Builds/releases). Older dated builds are removed from that page over time, so if `deps install` reports a 404 for ffmpeg, pick a newer build.
 
 The ffmpeg builds are GPL-licensed. vid2gif downloads them when you run `deps install`; they aren't included in this repository.

@@ -194,8 +194,9 @@ All code is `package main`. The Go module is named `vid2gif` (renameable to a ho
 
 - **Pinned ffmpeg builds can disappear.** FFmpeg-Builds keeps a limited set of dated releases (38 existed on 2026-10-17, the oldest from November 2024). A pin pointing at an old build may eventually 404; the fix is to bump `deps.json` or mirror the asset.
 - **yt-dlp goes stale.** A pinned yt-dlp will eventually fail when a site changes. Bumping the pin (version, URL, hash) is a manual edit by design.
-- **Archive layout is assumed for Linux.** The Windows zip layout (`<dir>/bin/ffmpeg.exe`) was confirmed from the local install; the Linux tarballs are assumed to match and will be confirmed by the integration test.
-- **Codec support in the pinned builds** (`libx264`, `libwebp_anim`) is confirmed locally for the author's current build from the same project, and for the pinned builds by the integration test.
+- **Archive layout.** Both the Windows zip and the Linux tarballs hold `<dir>/bin/ffmpeg[.exe]`. The integration test confirmed this on Windows, Linux amd64 and Linux arm64.
+- **Codec support in the pinned builds.** `libx264` and `libwebp_anim` are present in all three pinned builds; the integration test asserts this and encodes every format, including sources with odd dimensions and no audio.
+- **YouTube extraction.** Without a JavaScript runtime (deno) yt-dlp warns that YouTube extraction is deprecated, and on 2026-10-17 one well-known video returned "This video is unavailable" from the pinned yt-dlp. The download path was verified against a locally served MP4 instead. Sites that need a JS runtime may need one installed.
 - **ffmpeg is GPL.** It is downloaded at install time, not redistributed with this tool; the README says so.
 - **Windows arm64** builds exist upstream (`winarm64-gpl.zip`, `yt-dlp_arm64.exe`) and can be added as `deps.json` entries once someone can test them.
 - **The author's installed yt-dlp (2026.03.03) is older than the pin.** The managed `bin/` copy takes precedence over PATH, so this doesn't affect the tool.

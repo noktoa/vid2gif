@@ -1,0 +1,7 @@
+ARG GO_VERSION=1.26
+FROM golang:${GO_VERSION}
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+CMD ["go", "test", "-tags", "integration", "-run", "TestRealToolsEncode", "-v", "-timeout", "30m", "./..."]
