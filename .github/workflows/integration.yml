@@ -1,0 +1,30 @@
+# Runs the real pinned yt-dlp, ffmpeg and deno on every supported platform.
+# It downloads them from GitHub releases and encodes locally generated test
+# videos. It never contacts YouTube or any other video site.
+name: integration
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, to notice pinned downloads going stale
+  workflow_dispatch:
+  push:
+    paths:
+      - deps.json
+      - internal/deps/**
+      - internal/encode/**
+      - test/integration/**
+      - .github/workflows/integration.yml
+
+jobs:
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -tags integration -v -timeout 30m ./test/integration/

@@ -112,6 +112,8 @@ docker run --rm vid2gif-test
 
 Use `--platform linux/arm64` for arm64. It runs under emulation and is slow.
 
+On GitHub, `.github/workflows/ci.yml` runs the unit tests on every push. `integration.yml` runs the integration test on Windows, Linux amd64 and Linux arm64 every week and whenever `deps.json` or the code that uses it changes. Neither workflow contacts YouTube; the integration test only downloads the pinned tools from GitHub releases.
+
 ## How it works
 
 1. It checks your times and flags first, so a typo doesn't cost you a download.
