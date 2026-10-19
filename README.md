@@ -97,10 +97,25 @@ Run `vid2gif help` to see all of this in the terminal.
 | `--overwrite` | off | Replace files that already exist. |
 | `--full-source` | off | GIF and WebP only. Normally vid2gif downloads the smallest video at least as wide as the quality needs (320, 480 or 720 pixels), which is a smaller download and gives a GIF or WebP of the same size. This flag downloads the best video instead. MP4 and MOV always use the best video. |
 | `--no-pin` | off | Skip the version check. The tools folder is still searched first, then your PATH. deno is optional here. |
+| `--no-progress` | off | Don't draw the progress bar. |
 
 Times are written as `SS`, `MM:SS` or `HH:MM:SS`. Only the last part can have decimals.
 
 Without `--end` the clip runs to the end of the video. On a long video, give an end time unless you really want everything after the start, because a GIF of that much footage gets very large.
+
+### Progress
+
+In a terminal, `clip` shows one line that updates in place, with the same wording and numbers as the desktop app:
+
+```
+Getting the clip 63%    [█████████░░░░░░░░░░░░░░░]  41%
+```
+
+The percentage at the end is for the whole clip. It never reaches 100% before the clip is done and never goes backwards, and there is no time estimate. Making a GIF or WebP can't be measured, so during those steps a block moves along the bar instead of a number. Without `--end` the clip's length isn't known, so the bar only shows activity for the whole run. Outside Windows Terminal on Windows, or without a UTF-8 locale elsewhere, the bar is drawn with plain characters (`[#####-----]`).
+
+While the bar is shown, yt-dlp's own messages are held back. If the run fails they are printed before the error, so you still see why. The `wrote …`, `skipped …` and `failed …` lines are printed as usual.
+
+When the output isn't a terminal (redirected to a file or piped to another program), or with `--no-progress`, there is no bar and the output is the same as before the bar existed.
 
 ### Existing files
 
@@ -188,6 +203,7 @@ flowchart LR
     debuglog["internal/debuglog<br/>opt-in log files"]
     lookup["internal/lookup<br/>links to titles and thumbnails"]
     runner["internal/runner<br/>clip queue, one at a time"]
+    progress["internal/progress<br/>overall percent and stage labels"]
     filesrv["internal/filesrv<br/>serves previews to the window"]
     proc["internal/proc<br/>hides tool console windows"]
     bin[("bin/<br/>yt-dlp, ffmpeg, deno")]
@@ -197,6 +213,8 @@ flowchart LR
     cli --> naming
     cli --> deps
     cli --> clip
+    cli --> progress
+    runner --> progress
     app --> appcore
     appcore --> settings
     appcore --> debuglog
@@ -231,6 +249,7 @@ Each package in one line:
 - `internal/debuglog`: the opt-in diagnostic log, one file per run, with URLs scrubbed of anything that identifies you or signs a media request.
 - `internal/lookup`: turns pasted links into videos with titles, durations and thumbnails, using one yt-dlp call per link.
 - `internal/runner`: makes a queue of clips one after another and turns the pipeline's events into the states the app shows.
+- `internal/progress`: turns the pipeline's stage events into one overall percent (from a table of measured stage costs) and the stage labels, for both the app and the command line.
 - `internal/filesrv`: serves the generated previews to the app's window, only from allowed folders and only media files.
 - `internal/proc`: stops tool child processes from flashing console windows on Windows.
 

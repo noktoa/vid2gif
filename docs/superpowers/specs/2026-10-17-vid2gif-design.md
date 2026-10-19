@@ -29,7 +29,7 @@ A GUI or web UI, batch/playlist mode, a config file, gifski, trimming to a targe
 ```
 vid2gif clip <url> --start T [--end T] [--format gif,webp,mp4,mov]
                    [--out DIR] [--name BASE] [--quality low|medium|high]
-                   [--overwrite] [--full-source] [--no-pin]
+                   [--overwrite] [--full-source] [--no-pin] [--no-progress]
 vid2gif deps install
 ```
 
@@ -48,6 +48,7 @@ The URL is taken as the first argument after `clip`; Go's `flag` package parses 
 | `--overwrite` | off | replace existing outputs |
 | `--full-source` | off | gif/webp only: download the best video instead of the smallest one at least as wide as the quality's width |
 | `--no-pin` | off | skip version checks and use yt-dlp/ffmpeg/deno from PATH (deno optional) |
+| `--no-progress` | off | no progress bar (see Output); without it the bar is shown only when stdout is a terminal |
 
 Exit codes: `0` success (including skipped outputs), `1` runtime failure (download or encode failed, tool missing or wrong version), `2` usage error (bad flag or timestamp).
 
@@ -73,10 +74,22 @@ Width is a cap: sources narrower than the cap are not upscaled. fps and width pr
    - mp4 or mov planned: `-f "bv*+ba/b"` (the video and audio of the best format), whatever `--full-source` says.
    - gif/webp only (no audio download): `-S +width -f "bv*[width>=W]/wv*[width<W]/bv*/b"`, where `W` is the quality's output width (320 / 480 / 720; `encode.PresetWidth`): the smallest video at least `W` wide, since gif/webp are never scaled above `W`. Sorted narrowest first, `bv*[width>=W]` is that format, and `wv*[width<W]` (when nothing is `W` wide) is the widest of the narrower ones. A width filter drops formats with an unknown width, so a source that reports none falls through to `bv*/b`, the best format as before (all widths tie, so the default quality order decides). There is deliberately no height cap (a portrait video's width is its short side).
    - gif/webp only with `--full-source`: `-f "bv*/b"`.
-   yt-dlp's stdout and stderr stream to the terminal. `--ffmpeg-location` is mandatory; without it yt-dlp would use whatever ffmpeg is on PATH and defeat the pin.
+   yt-dlp's stdout and stderr stream to the terminal, except while the progress bar is shown (see Output). `--ffmpeg-location` is mandatory; without it yt-dlp would use whatever ffmpeg is on PATH and defeat the pin.
 6. **Encode each planned format** from the downloaded clip into the temp dir, then rename into `--out`. A failure in one format does not delete outputs already written; the run continues with the remaining formats and exits `1` at the end.
 7. **Clean up** the temp dir (also on Ctrl+C, via a cancellable context passed to every child process).
 8. **Summarize**: print each written path with its size, and a final line such as `wrote 2, skipped 1`.
+
+### Output
+
+When stdout is a terminal and `--no-progress` is not given, `clip` draws one progress line, redrawn in place with `\r`: the stage label, a 24-cell bar and the overall percent, for example `Getting the clip 63%    [█████████░░░░░░░░░░░░░░░]  41%`. It uses the desktop app's tracker, cost table and labels (`internal/progress`; see Progress accuracy in the desktop spec), so the same rules hold: the percent never reaches 100% before the clip is done and never goes backwards, a stage percentage appears only for measured stages (getting the clip, making MP4/MOV), and no time estimate is shown. During an unmeasured stage (finding the video, making GIF/WebP) the overall number is hidden and a short block sweeps across the unfilled part of the bar. The clip length is `--end` minus `--start`; with no `--end` it is unknown (the CLI does not look up the video's duration), so the bar is indeterminate for the whole run.
+
+- Redraws happen only on a 1/8 s ticker (at most 8 a second). The ticker also keeps the sweep moving during long unmeasured stages, and it is stopped before `clip` returns.
+- The line stays under 72 columns and is padded with spaces over a longer previous line. No ANSI colour or cursor codes are used, so legacy Windows consoles work.
+- Block characters (`█ ░ ▓`) are used on Windows only inside Windows Terminal (`WT_SESSION` set), and elsewhere only with a UTF-8 locale (the first of `LC_ALL`, `LC_CTYPE`, `LANG` that is set). Otherwise the bar is ASCII (`[#####===------]`) and `…` becomes `...`.
+- The `skipped …`, `wrote …` and `failed …` lines and the summary are unchanged: the bar is erased before each one and drawn again after it, and erased for good when the run ends (success, failure or Ctrl+C).
+- yt-dlp's own stdout and stderr (title lookup and download) are captured instead of shown, keeping the last 64 KB. If the run fails they are printed to stderr before the `error:` line; after Ctrl+C they are not. ffmpeg's output already goes only into the error text.
+
+When stdout is not a terminal (a file or a pipe), or with `--no-progress`, none of this happens and the output is byte-for-byte what it was before the bar existed.
 
 ### ffmpeg invocations
 
@@ -183,7 +196,9 @@ Go's standard library has no xz decompressor and the Linux ffmpeg builds ship on
 
 ```
 cmd/vid2gif/main.go          subcommand dispatch, flag parsing, exit codes
+cmd/vid2gif/bar.go           the terminal progress bar
 internal/clip/clip.go        download / encode pipeline, yt-dlp wiring
+internal/progress/           overall percent from the measured stage costs (costs.go), stage labels; shared with the desktop app
 internal/encode/encode.go    quality presets, ffmpeg argument builder and runner
 internal/naming/             timestamps (timestamp.go), formats, file names, skip-existing planning (plan.go)
 internal/deps/               deps.json, version matching, tool resolution (deps.go); download, SHA-256, extract, install (install.go)

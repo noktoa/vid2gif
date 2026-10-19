@@ -142,7 +142,7 @@ Rules the user or the style rejects: no warm cream grounds, no gradient text, no
 The CLI today shells out and streams yt-dlp and ffmpeg output to a terminal writer. The app needs structured information instead. These are additions to the shared packages; the CLI's visible behaviour stays the same, with one exception (item 7: GIF/WebP downloads get faster).
 
 1. **Playlist expansion.** Given a URL, decide whether it is a single video or a playlist and return, per video, the id/URL, title, duration and thumbnail URL, using yt-dlp's metadata-only listing (no download). A pasted single URL becomes one slip. Unavailable entries become slips already in the "could not get" state.
-2. **Progress reporting.** `clip.Pipeline.Run` reports stages and fractions through an optional callback (see Progress accuracy for what can and cannot be measured). The CLI ignores it.
+2. **Progress reporting.** `clip.Pipeline.Run` reports stages and fractions through an optional callback (see Progress accuracy for what can and cannot be measured). The CLI uses it for its terminal progress bar (see Output in the CLI spec), with the same tracker and labels.
 3. **Cancellation.** Already supported by the context passed to child processes; the app's Stop button uses it.
 4. **Result facts for the preview.** After a clip, report the written file paths with size, plus length and width, so the preview can show them.
 5. **Settings file.** Theme, output folder, formats, quality and download size, stored as JSON under the user's profile (`%LOCALAPPDATA%\vid2gif\settings.json`; everything the app creates lives under the one folder `%LOCALAPPDATA%\vid2gif`, so removal is simple; builder's call). A missing or corrupt file falls back to defaults.
@@ -176,7 +176,7 @@ The user's rule: a progress bar that isn't accurate is worthless. These are meas
 Decision (user): **one bar plus a stage label.**
 - The bar only moves when real work finishes. It never sits at 100% while work continues, never goes backwards, and reaches 100% only when the clip is done.
 - Labels: "Finding the video…", "Getting the clip 63%", "Making GIF…", "Making MP4 40%". A percentage appears only on the two measured stages (getting the clip, making MP4/MOV). Unmeasured stages show the label and a gentle pulse. No time estimate is ever shown.
-- How far each stage moves the bar comes from a cost table of measured seconds of work (find: about 3 s fixed; getting the clip, GIF, WebP, MP4/MOV: a per-second-of-clip cost), kept in one place in `internal/runner` with the date, machine and sample size in a comment. Re-measure it after the smaller-source change (engine item 7), because that shrinks the largest stage.
+- How far each stage moves the bar comes from a cost table of measured seconds of work (find: about 3 s fixed; getting the clip, GIF, WebP, MP4/MOV: a per-second-of-clip cost), kept in one place in `internal/progress` (shared by the app and the CLI) with the date, machine and sample size in a comment. Re-measure it after the smaller-source change (engine item 7), because that shrinks the largest stage.
 - The clip length is Stop minus Start, or the video's duration minus Start when Stop is blank. When it is unknown (a live video), the bar is indeterminate for the whole clip and the label still changes with the stage.
 - With reduced motion, the pulse is replaced by a static striped fill.
 
