@@ -393,6 +393,10 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	case "fail":
 		os.Exit(1)
+	case "chatter":
+		os.Stdout.WriteString("TOOL-STDOUT\n")
+		os.Stderr.WriteString("ERROR: TOOL-STDERR\n")
+		os.Exit(1)
 	}
 	os.Exit(m.Run())
 }
@@ -667,6 +671,47 @@ func TestRunCancelWithToolExitErrorReportsCanceled(t *testing.T) {
 				t.Errorf("last event = %+v; want failed with context.Canceled", last)
 			}
 		})
+	}
+}
+
+// syncBuf is a bytes.Buffer safe for the two tool-output copy goroutines.
+type syncBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+// WithToolOutput takes yt-dlp's own stdout and stderr (title and download)
+// off the terminal; the CLI's own lines still go to out.
+func TestWithToolOutputCapturesYtdlp(t *testing.T) {
+	t.Setenv("VID2GIF_HELPER", "chatter")
+	for _, name := range []string{"", "given"} { // "" runs the title lookup
+		var tool syncBuf
+		var out bytes.Buffer
+		p := New(os.Args[0], os.Args[0], "", "", &out).WithToolOutput(&tool)
+		o := baseOpts(t.TempDir(), "gif")
+		o.Name = name
+		if err := p.Run(context.Background(), o); err == nil {
+			t.Fatalf("name %q: want the tool's failure", name)
+		}
+		got := tool.b.String()
+		if !strings.Contains(got, "TOOL-STDERR") || (name != "" && !strings.Contains(got, "TOOL-STDOUT")) {
+			t.Errorf("name %q: captured %q", name, got)
+		}
+		if strings.Contains(out.String(), "TOOL-") {
+			t.Errorf("name %q: tool output leaked into out: %q", name, out.String())
+		}
+	}
+}
+
+func TestToolOutputDefaultsToTerminal(t *testing.T) {
+	if o, e := toolOutput(context.Background()); o != os.Stdout || e != os.Stderr {
+		t.Errorf("default tool output = %v, %v; want os.Stdout, os.Stderr", o, e)
 	}
 }
 

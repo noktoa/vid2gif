@@ -2,13 +2,19 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"vid2gif/internal/clip"
 )
 
 func TestParseClipArgsDefaults(t *testing.T) {
@@ -38,6 +44,159 @@ func TestParseClipArgsFullSource(t *testing.T) {
 	o, err := parseClipArgs([]string{"https://x/y", "--start", "1", "--full-source"})
 	if err != nil || !o.FullSource {
 		t.Errorf("FullSource = %v, err = %v; want true", o.FullSource, err)
+	}
+}
+
+func TestParseClipArgsNoProgress(t *testing.T) {
+	a, err := parseClipArgs([]string{"https://x/y", "--start", "1"})
+	if err != nil || a.NoProgress {
+		t.Errorf("default NoProgress = %v, err = %v; want false", a.NoProgress, err)
+	}
+	a, err = parseClipArgs([]string{"https://x/y", "--start", "1", "--no-progress"})
+	if err != nil || !a.NoProgress {
+		t.Errorf("NoProgress = %v, err = %v; want true", a.NoProgress, err)
+	}
+}
+
+// fakeClip stands in for clip.Pipeline: it records how it was set up and
+// writes what a real run would.
+type fakeClip struct {
+	out, toolOut io.Writer
+	opts         clip.Opts
+	run          func(f *fakeClip, ctx context.Context, o clip.Opts) error
+}
+
+func (f *fakeClip) Run(ctx context.Context, o clip.Opts) error {
+	f.opts = o
+	return f.run(f, ctx, o)
+}
+
+func newFake(run func(f *fakeClip, ctx context.Context, o clip.Opts) error) (*fakeClip, func(out, toolOut io.Writer) clipRunner) {
+	f := &fakeClip{run: run}
+	return f, func(out, toolOut io.Writer) clipRunner {
+		f.out, f.toolOut = out, toolOut
+		return f
+	}
+}
+
+// plainRun writes the lines a real two-format run prints, then fails.
+func plainRun(f *fakeClip, _ context.Context, o clip.Opts) error {
+	if o.OnEvent != nil {
+		o.OnEvent(clip.Event{Stage: clip.StageFind, Pct: -1})
+		o.OnEvent(clip.Event{Stage: clip.StageEncode, Pct: -1, Path: "g/x.gif"})
+	}
+	if f.toolOut != nil {
+		f.toolOut.Write([]byte("ERROR: yt-dlp says why\n"))
+	}
+	io.WriteString(f.out, "wrote g/x.gif (3 KB)\nfailed g/x.mp4: ffmpeg: exit status 1\nwrote 1, skipped 0\n")
+	return errors.New("1 of 2 outputs failed")
+}
+
+// Off a terminal, or with --no-progress, the output is exactly what it was
+// before the bar existed: the pipeline writes straight to stdout, yt-dlp keeps
+// the terminal, no events, no clip length.
+func TestPlainOutputUnchanged(t *testing.T) {
+	for _, args := range [][]string{
+		{"https://x", "--start", "1", "--end", "9", "--format", "gif,mp4"},
+		{"https://x", "--start", "1", "--end", "9", "--format", "gif,mp4", "--no-progress"},
+	} {
+		a, err := parseClipArgs(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out, errb bytes.Buffer
+		if wantBar(a, &out) {
+			t.Fatalf("%v: bar wanted on a buffer", args)
+		}
+		f, newRunner := newFake(plainRun)
+		if code := makeClip(context.Background(), a, false, &out, &errb, newRunner); code != 1 {
+			t.Errorf("code = %d, want 1", code)
+		}
+		if f.out != &out || f.toolOut != nil || f.opts.OnEvent != nil || f.opts.DurationSec != 0 {
+			t.Errorf("%v: plain run was changed: out=%v toolOut=%v opts=%+v", args, f.out, f.toolOut, f.opts)
+		}
+		if got := out.String(); got != "wrote g/x.gif (3 KB)\nfailed g/x.mp4: ffmpeg: exit status 1\nwrote 1, skipped 0\n" {
+			t.Errorf("stdout = %q", got)
+		}
+		if got := errb.String(); got != "error: 1 of 2 outputs failed\n" {
+			t.Errorf("stderr = %q", got)
+		}
+	}
+}
+
+func TestWantBarHonoursNoProgress(t *testing.T) {
+	a, _ := parseClipArgs([]string{"https://x", "--start", "1", "--no-progress"})
+	if wantBar(a, os.Stdout) {
+		t.Error("--no-progress still wants the bar")
+	}
+}
+
+// With the bar: same lines on stdout (with the bar erased around them),
+// yt-dlp's output held back and shown on stderr only because the run failed,
+// and no bar left on screen.
+func TestBarRunKeepsLinesAndShowsToolOutputOnFailure(t *testing.T) {
+	a, _ := parseClipArgs([]string{"https://x", "--start", "1", "--end", "9", "--format", "gif,mp4"})
+	var out syncWriter
+	var errb bytes.Buffer
+	f, newRunner := newFake(func(f *fakeClip, ctx context.Context, o clip.Opts) error {
+		o.OnEvent(clip.Event{Stage: clip.StageFind, Pct: -1})
+		time.Sleep(300 * time.Millisecond) // let the ticker draw
+		return plainRun(f, ctx, o)
+	})
+	if code := makeClip(context.Background(), a, true, &out, &errb, newRunner); code != 1 {
+		t.Errorf("code = %d, want 1", code)
+	}
+	if f.opts.DurationSec != 8 || f.toolOut == nil {
+		t.Errorf("DurationSec = %v, toolOut = %v; want 8 and a capture", f.opts.DurationSec, f.toolOut)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Finding the video") {
+		t.Errorf("bar never drawn: %q", got)
+	}
+	// what stays on screen: per line, the last \r-drawn text; the last line
+	// (where the bar was) must be blank
+	if s := screen(got); s != "wrote g/x.gif (3 KB)\nfailed g/x.mp4: ffmpeg: exit status 1\nwrote 1, skipped 0\n" {
+		t.Errorf("screen = %q (raw %q)", s, got)
+	}
+	if errb.String() != "ERROR: yt-dlp says why\nerror: 1 of 2 outputs failed\n" {
+		t.Errorf("stderr = %q", errb.String())
+	}
+}
+
+// screen models a terminal for \r-only output: each line shows its last
+// \r-separated part, trailing spaces trimmed.
+func screen(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		parts := strings.Split(l, "\r")
+		lines[i] = strings.TrimRight(parts[len(parts)-1], " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// A cancel (Ctrl+C) is not a failure to explain: the held-back tool output
+// stays hidden, and the bar is gone.
+func TestBarRunCancelHidesToolOutput(t *testing.T) {
+	a, _ := parseClipArgs([]string{"https://x", "--start", "1"})
+	ctx, cancel := context.WithCancel(context.Background())
+	var out syncWriter
+	var errb bytes.Buffer
+	f, newRunner := newFake(func(f *fakeClip, ctx context.Context, o clip.Opts) error {
+		o.OnEvent(clip.Event{Stage: clip.StageDownload, Pct: -1})
+		f.toolOut.Write([]byte("KeyboardInterrupt\n"))
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+		return ctx.Err()
+	})
+	makeClip(ctx, a, true, &out, &errb, newRunner)
+	if f.opts.DurationSec != 0 {
+		t.Errorf("DurationSec = %v without --end, want 0 (unknown)", f.opts.DurationSec)
+	}
+	if errb.String() != "error: context canceled\n" {
+		t.Errorf("stderr = %q", errb.String())
+	}
+	if got := out.String(); !regexp.MustCompile(`\r +\r$`).MatchString(got) || strings.Contains(got, "%") {
+		t.Errorf("stdout = %q; want indeterminate frames then an erase", got)
 	}
 }
 
@@ -81,7 +240,7 @@ func TestHelpListsCommandsFlagsAndExample(t *testing.T) {
 		}
 		for _, want := range []string{
 			"vid2gif clip <url>", "vid2gif deps install", "Example:", "--start 1:23",
-			"-start", "-end", "-format", "-out", "-name", "-quality", "-overwrite", "-no-pin", "-full-source",
+			"-start", "-end", "-format", "-out", "-name", "-quality", "-overwrite", "-no-pin", "-full-source", "-no-progress",
 		} {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("realMain(%v) help is missing %q:\n%s", args, want, out.String())

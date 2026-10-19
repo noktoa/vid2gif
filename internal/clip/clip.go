@@ -71,9 +71,11 @@ type Pipeline struct {
 	// used only to write command lines to the debug log
 	ytdlp, ffmpeg, deno string
 	log                 *debuglog.Log
+	toolOut             io.Writer
 }
 
 type logKey struct{}
+type toolOutKey struct{}
 
 // WithLog returns a pipeline that records commands, tool stderr, events and
 // the final error in l. A nil l changes nothing; a disabled l writes nothing.
@@ -82,8 +84,28 @@ func (p Pipeline) WithLog(l *debuglog.Log) Pipeline {
 	return p
 }
 
+// WithToolOutput sends yt-dlp's own output (stdout and stderr) to w instead
+// of the terminal, e.g. while the CLI draws a progress bar. w must be safe for
+// concurrent writes. nil keeps the terminal. ffmpeg's output never reaches
+// the terminal: it goes into the error.
+func (p Pipeline) WithToolOutput(w io.Writer) Pipeline {
+	p.toolOut = w
+	return p
+}
+
+// toolOutput is where yt-dlp's stdout and stderr go for this run.
+func toolOutput(ctx context.Context) (stdout, stderr io.Writer) {
+	if w, _ := ctx.Value(toolOutKey{}).(io.Writer); w != nil {
+		return w, w
+	}
+	return os.Stdout, os.Stderr
+}
+
 func (p Pipeline) Run(ctx context.Context, o Opts) error {
 	ctx = context.WithValue(ctx, logKey{}, p.log) // read by the real tool runners
+	if p.toolOut != nil {
+		ctx = context.WithValue(ctx, toolOutKey{}, p.toolOut)
+	}
 	err := p.run(ctx, o)
 	if err != nil {
 		p.log.Printf("error: %v", err)
@@ -435,7 +457,8 @@ func New(ytdlp, ffmpeg, deno, hint string, out io.Writer) Pipeline {
 			var stdout bytes.Buffer
 			var done func()
 			cmd.Stdout = &stdout
-			cmd.Stderr, done = teeStderr(ctx, "yt-dlp", os.Stderr, nil)
+			_, toolErr := toolOutput(ctx)
+			cmd.Stderr, done = teeStderr(ctx, "yt-dlp", toolErr, nil)
 			err := runTool(cmd)
 			done()
 			if err != nil {
@@ -451,8 +474,9 @@ func New(ytdlp, ffmpeg, deno, hint string, out io.Writer) Pipeline {
 			if progress != nil {
 				each = downloadProgress(o.DurationSec, progress)
 			}
-			cmd.Stdout = os.Stdout
-			cmd.Stderr, done = teeStderr(ctx, "yt-dlp", os.Stderr, each)
+			toolOut, toolErr := toolOutput(ctx)
+			cmd.Stdout = toolOut
+			cmd.Stderr, done = teeStderr(ctx, "yt-dlp", toolErr, each)
 			err := runTool(cmd)
 			done()
 			if err != nil {

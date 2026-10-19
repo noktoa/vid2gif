@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -16,6 +17,7 @@ import (
 	"vid2gif/internal/deps"
 	"vid2gif/internal/encode"
 	"vid2gif/internal/naming"
+	"vid2gif/internal/progress"
 )
 
 const usage = `vid2gif - turn a segment of an online video into a GIF, WebP, MP4 or MOV
@@ -36,7 +38,8 @@ Times are SS, MM:SS or HH:MM:SS (decimals allowed on the last part).
 // (overview, example, then every flag with its default); the flag package
 // prints it on -h and on flag parse errors, and `vid2gif help` calls it too,
 // so the flag list can never drift from the code.
-func newClipFlags(o *clip.Opts, start, end, formats *string) *flag.FlagSet {
+func newClipFlags(a *clipArgs, start, end, formats *string) *flag.FlagSet {
+	o := &a.Opts
 	fs := flag.NewFlagSet("clip", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(start, "start", "", "start time: SS, MM:SS or HH:MM:SS (required)")
@@ -48,6 +51,7 @@ func newClipFlags(o *clip.Opts, start, end, formats *string) *flag.FlagSet {
 	fs.BoolVar(&o.Overwrite, "overwrite", false, "replace existing output files (default: skip them)")
 	fs.BoolVar(&o.NoPin, "no-pin", false, "use yt-dlp and ffmpeg from PATH without version checks")
 	fs.BoolVar(&o.FullSource, "full-source", false, "gif/webp only: download the best video instead of the smallest one at least as wide as the quality (slower; same dimensions)")
+	fs.BoolVar(&a.NoProgress, "no-progress", false, "no progress bar (it is shown only when the output is a terminal)")
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), usage, "\nFlags for clip:\n")
 		fs.PrintDefaults()
@@ -55,52 +59,60 @@ func newClipFlags(o *clip.Opts, start, end, formats *string) *flag.FlagSet {
 	return fs
 }
 
+// clipArgs is a parsed `clip` command: the pipeline's options plus the
+// CLI-only ones.
+type clipArgs struct {
+	clip.Opts
+	NoProgress bool
+}
+
 // parseClipArgs expects `<url> [flags]`.
-func parseClipArgs(args []string) (clip.Opts, error) {
+func parseClipArgs(args []string) (clipArgs, error) {
+	var a clipArgs
 	if len(args) == 0 {
-		return clip.Opts{}, errors.New("missing <url>")
+		return a, errors.New("missing <url>")
 	}
-	var o clip.Opts
+	o := &a.Opts
 	var start, end, formats string
-	fs := newClipFlags(&o, &start, &end, &formats)
+	fs := newClipFlags(&a, &start, &end, &formats)
 	rest := args
 	if !strings.HasPrefix(args[0], "-") {
 		o.URL, rest = args[0], args[1:]
 	}
 	if err := fs.Parse(rest); err != nil {
-		return o, err
+		return a, err
 	}
 	if o.URL == "" {
-		return o, errors.New("the URL must come first: vid2gif clip <url> --start T")
+		return a, errors.New("the URL must come first: vid2gif clip <url> --start T")
 	}
 	if fs.NArg() > 0 {
-		return o, errors.New("unexpected argument " + fs.Arg(0))
+		return a, errors.New("unexpected argument " + fs.Arg(0))
 	}
 	if start == "" {
-		return o, errors.New("--start is required")
+		return a, errors.New("--start is required")
 	}
 	var err error
 	if o.Start, err = naming.ParseTimestamp(start); err != nil {
-		return o, errors.New("--start: " + err.Error())
+		return a, errors.New("--start: " + err.Error())
 	}
 	if end != "" { // no --end: o.End stays 0, meaning until the end of the video
 		if o.End, err = naming.ParseTimestamp(end); err != nil {
-			return o, errors.New("--end: " + err.Error())
+			return a, errors.New("--end: " + err.Error())
 		}
 		if o.End <= o.Start {
-			return o, errors.New("--end must be after --start")
+			return a, errors.New("--end must be after --start")
 		}
 	}
 	if o.Formats, err = naming.ParseFormats(formats); err != nil {
-		return o, errors.New("--format: " + err.Error())
+		return a, errors.New("--format: " + err.Error())
 	}
 	if _, ok := encode.Presets[o.Quality]; !ok {
-		return o, fmt.Errorf("unknown --quality %q (choose low, medium or high)", o.Quality)
+		return a, fmt.Errorf("unknown --quality %q (choose low, medium or high)", o.Quality)
 	}
 	if strings.ContainsAny(o.Name, `/\`) {
-		return o, errors.New("--name must not contain path separators; use --out for the directory")
+		return a, errors.New("--name must not contain path separators; use --out for the directory")
 	}
-	return o, nil
+	return a, nil
 }
 
 // baseDir is where deps.json and bin/ live: next to the executable, or the
@@ -172,7 +184,53 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := clip.New(ytdlp, ffmpeg, deno, hint, stdout).Run(ctx, o); err != nil {
+	return makeClip(ctx, o, wantBar(o, stdout), stdout, stderr, func(out, toolOut io.Writer) clipRunner {
+		return clip.New(ytdlp, ffmpeg, deno, hint, out).WithToolOutput(toolOut)
+	})
+}
+
+type clipRunner interface {
+	Run(ctx context.Context, o clip.Opts) error
+}
+
+// wantBar: the progress bar is on by default, but only on a terminal.
+func wantBar(a clipArgs, stdout io.Writer) bool {
+	return !a.NoProgress && isTerminal(stdout)
+}
+
+// makeClip runs one clip; newRunner builds the pipeline writing its lines to
+// out and yt-dlp's own output to toolOut (nil = the terminal). Without the bar
+// the run is exactly the plain one. With it, the bar shows the app's progress
+// (same tracker, labels and honesty rules), and yt-dlp's output is held back
+// and printed only if the run fails (not on Ctrl+C).
+func makeClip(ctx context.Context, a clipArgs, showBar bool, stdout, stderr io.Writer, newRunner func(out, toolOut io.Writer) clipRunner) int {
+	if !showBar {
+		if err := newRunner(stdout, nil).Run(ctx, a.Opts); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 1
+		}
+		return 0
+	}
+	o := a.Opts
+	if o.End > 0 {
+		// ponytail: without --end the length is unknown and the bar is indeterminate; the title lookup could also fetch the duration.
+		o.DurationSec = o.End - o.Start
+	}
+	tr := progress.New(o.Quality, o.Formats, o.FullSource, o.DurationSec)
+	b := newBar(stdout, blocksOK(runtime.GOOS, os.Getenv))
+	o.OnEvent = func(e clip.Event) { // serialized by clip, never after Run returns
+		if stage, stagePct, overall, ok := tr.Apply(e); ok {
+			b.update(progress.Label(stage, stagePct), overall, stagePct >= 0)
+		}
+	}
+	tool := &tail{max: 64 << 10}
+	b.start(tickEvery)
+	err := newRunner(b, tool).Run(ctx, o)
+	b.stop()
+	if err != nil {
+		if ctx.Err() == nil {
+			stderr.Write(tool.bytes())
+		}
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
@@ -195,7 +253,7 @@ func realMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, usage)
 		return 2
 	case "help", "-h", "--help":
-		fs := newClipFlags(&clip.Opts{}, new(string), new(string), new(string))
+		fs := newClipFlags(&clipArgs{}, new(string), new(string), new(string))
 		fs.SetOutput(stdout)
 		fs.Usage()
 		return 0
