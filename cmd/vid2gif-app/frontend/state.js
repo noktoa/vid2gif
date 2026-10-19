@@ -6,12 +6,11 @@
 //   start     seconds from Validate, null until a valid Start is set
 //   end       seconds, 0 = to the end
 //   timeMsg   Validate's message, "" = fine
+//   checked   "startText|endText" as last validated; start/end belong to it
 //   status    null (ready) or {kind, stage, pct, stagePct, message, files}
 // Every function returns a new array; the input is never changed.
 
-const FINISHED = ["done", "already", "partial"];
-
-const blank = { source: "", startText: "", endText: "", start: null, end: 0, timeMsg: "", status: null };
+const blank = { source: "", startText: "", endText: "", start: null, end: 0, timeMsg: "", checked: "|", status: null };
 
 // addPlaceholders appends Add's placeholders, ignoring links already on the shelf.
 export function addPlaceholders(slips, newSlips) {
@@ -41,12 +40,26 @@ export function replaceSlip(slips, id, newSlips) {
   return [...slips.slice(0, i), ...fresh, ...slips.slice(i + 1)];
 }
 
-const isReady = (s) =>
-  !s.pending && !s.unavailable && !s.failed && s.start !== null && !s.timeMsg &&
-  !FINISHED.includes(s.status?.kind);
+// canRun: a real video that isn't in the current run. A finished slip can be
+// made again (another quality or format makes a new file; the same one is
+// answered "already" before any download).
+const canRun = (s) => !s.pending && !s.unavailable && !s.failed && !["queued", "making"].includes(s.status?.kind);
+const typed = (s) => s.startText + "|" + s.endText;
+const isReady = (s) => canRun(s) && s.start !== null && !s.timeMsg && s.checked === typed(s);
 
-// readyJobs is what Make sends: runner.Job for each slip that can be made.
-// A slip that already finished is left out until its times change.
+// needsCheck: slips whose typed times haven't been validated yet; Make
+// validates these first so it never sends stale start/end.
+export function needsCheck(slips) {
+  return slips.filter((s) => canRun(s) && s.startText.trim() && s.checked !== typed(s)).map((s) => s.id);
+}
+
+// makeCount: what the Make label counts, ready slips plus ones Make will check first.
+export function makeCount(slips) {
+  return readyJobs(slips).length + needsCheck(slips).length;
+}
+
+// readyJobs is what Make sends: runner.Job for each slip that can be made with
+// validated times.
 export function readyJobs(slips) {
   return slips.filter(isReady).map((s) => ({
     id: s.id, url: s.url, title: s.title, start: s.start, end: s.end, durationSec: s.durationSec,
@@ -61,7 +74,8 @@ const update = (slips, id, fn) => {
   return out;
 };
 
-// applyStatus folds one slip:status event into the list.
+// applyStatus folds one slip:status event into the list. Files always come
+// from the event: a new run's result replaces the previous run's.
 export function applyStatus(slips, e) {
   return update(slips, e.jobId, (s) => {
     if (e.kind === "ready") return { ...s, status: null };

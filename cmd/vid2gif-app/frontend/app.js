@@ -112,7 +112,7 @@ function paintAll() {
     makeBtn.textContent = "Stop";
     makeBtn.disabled = false;
   } else {
-    const n = S.readyJobs(slips).length;
+    const n = S.makeCount(slips);
     makeBtn.textContent = S.makeLabel(n);
     makeBtn.disabled = n === 0;
   }
@@ -177,7 +177,7 @@ function buildRow2(s, mode) {
   }
   const input = (which, placeholder) => el("input", {
     class: which, inputmode: "decimal", placeholder, autocomplete: "off", spellcheck: "false",
-    oninput: (e) => { slips = slips.map((x) => (x.id === s.id ? { ...x, [which + "Text"]: e.target.value } : x)); },
+    oninput: (e) => { slips = slips.map((x) => (x.id === s.id ? { ...x, [which + "Text"]: e.target.value } : x)); render(); },
     onblur: () => validate(s.id, which),
     onkeydown: (e) => { if (e.key === "Enter") validate(s.id, which); },
   });
@@ -262,7 +262,7 @@ function buildState(s, msg, needStart) {
 }
 
 // ---------- preview inside the slip ----------
-const playable = (f) => f && typeof f.url === "string" && f.url.startsWith("/") && ["gif", "webp", "mp4"].includes(f.format);
+const playable = (f) => f && typeof f.url === "string" && f.url.startsWith("/out/") && ["gif", "webp", "mp4"].includes(f.format);
 
 function paintPreview(li, s, open) {
   const files = s.status?.files || [];
@@ -465,8 +465,14 @@ window.addEventListener("drop", (e) => {
 });
 
 // ---------- making ----------
-makeBtn.addEventListener("click", () => {
+let starting = false;
+makeBtn.addEventListener("click", async () => {
   if (running) return App.Stop();
+  if (starting) return;
+  starting = true;
+  // typed-but-unchecked times are validated first, so jobs carry what was typed
+  await Promise.all(S.needsCheck(slips).map((id) => validate(id, slips.find((x) => x.id === id)?.badField || "start")));
+  starting = false;
   const jobs = S.readyJobs(slips);
   if (!jobs.length) return;
   running = true;
@@ -507,7 +513,9 @@ function showSetup(needsAdmin) {
 on("setup", (e) => {
   setupAcc = S.setupProgress(setupAcc, e);
   const v = S.barValue(setupAcc.pct);
-  setBar(setupBar, setupAcc.pct, `Downloading ${Math.round(v * 100)}%`, !setupAcc.known);
+  // an unmeasured download (no size) shows no percentage and the sweep
+  if (setupAcc.known) setBar(setupBar, setupAcc.pct, `Downloading ${Math.round(v * 100)}%`, false);
+  else setBar(setupBar, -1, "Downloading…", false);
 });
 on("setup:done", () => {
   $("setup").hidden = true;

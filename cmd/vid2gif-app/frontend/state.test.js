@@ -3,16 +3,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   addPlaceholders, replaceSlip, readyJobs, applyStatus, eyeId, makeLabel,
-  formatDuration, stageLabel, barValue, startRun, endRun, sourceTitle,
+  formatDuration, stageLabel, barValue, needsCheck, makeCount, startRun, endRun, sourceTitle,
   setupProgress, formatSize, clipLength,
 } from "./state.js";
 
 const slip = (id, more = {}) => ({
   id, url: "https://v.example/" + id, title: "T " + id, thumbnailUrl: "", durationSec: 300,
   unavailable: false, reason: "", failed: false, message: "",
-  startText: "", endText: "", start: null, end: 0, timeMsg: "", status: null, ...more,
+  startText: "", endText: "", start: null, end: 0, timeMsg: "", checked: "|", status: null, ...more,
 });
-const ready = (id, more) => slip(id, { startText: "0:10", start: 10, ...more });
+const ready = (id, more = {}) => {
+  const s = slip(id, { startText: "0:10", start: 10, ...more });
+  return { ...s, checked: "checked" in more ? more.checked : s.startText + "|" + s.endText };
+};
 const ev = (jobId, kind, more = {}) => ({ jobId, kind, stage: "", message: "", pct: -1, stagePct: -1, files: [], ...more });
 
 test("addPlaceholders appends placeholders and ignores links already on the shelf", () => {
@@ -42,7 +45,7 @@ test("replaceSlip drops videos already on the shelf, keeps unavailable entries w
   assert.deepEqual(out.map((v) => v.id), ["a", "n1", "n2"]);
 });
 
-test("readyJobs skips slips without a Start, unavailable, failed, pending and finished ones", () => {
+test("readyJobs skips slips without a Start, unavailable, failed lookups, placeholders and bad times", () => {
   const s = [
     ready("ok", { endText: "0:20", end: 20 }),
     slip("nostart"),
@@ -50,13 +53,31 @@ test("readyJobs skips slips without a Start, unavailable, failed, pending and fi
     ready("bad", { failed: true }),
     ready("ph", { pending: true }),
     ready("err", { timeMsg: "Stop must be after Start." }),
-    ready("done", { status: { kind: "done", files: [] } }),
+  ];
+  assert.deepEqual(readyJobs(s), [{ id: "ok", url: s[0].url, title: "T ok", start: 10, end: 20, durationSec: 300 }]);
+});
+
+test("readyJobs includes finished slips again: done, partial, already and run-failed", () => {
+  const f = [{ format: "gif", path: "p", size: 1, url: "/out/x" }];
+  const s = [
+    ready("done", { status: { kind: "done", files: f } }),
+    ready("partial", { status: { kind: "partial", message: "The MP4 couldn't be made.", files: f } }),
+    ready("already", { status: { kind: "already", files: f } }),
     ready("retry", { status: { kind: "failed", message: "x", files: [] } }),
   ];
-  assert.deepEqual(readyJobs(s), [
-    { id: "ok", url: s[0].url, title: "T ok", start: 10, end: 20, durationSec: 300 },
-    { id: "retry", url: s[7].url, title: "T retry", start: 10, end: 0, durationSec: 300 },
-  ]);
+  assert.deepEqual(readyJobs(s).map((j) => j.id), ["done", "partial", "already", "retry"]);
+});
+
+test("readyJobs leaves out slips in the current run", () => {
+  const s = [ready("q", { status: { kind: "queued", files: [] } }), ready("m", { status: { kind: "making", stage: "gif", pct: 0.5, stagePct: -1, files: [] } })];
+  assert.deepEqual(readyJobs(s), []);
+});
+
+test("readyJobs leaves out a slip whose text changed since it was validated; needsCheck names it", () => {
+  const s = [ready("a"), ready("edited", { startText: "0:20", checked: "0:10|" }), slip("fresh"), ready("gone", { startText: "1", checked: "", unavailable: true })];
+  assert.deepEqual(readyJobs(s).map((j) => j.id), ["a"]);
+  assert.deepEqual(needsCheck(s), ["edited"]);
+  assert.equal(makeCount(s), 2);
 });
 
 test("applyStatus: making keeps the stage and never lowers progress", () => {
@@ -86,6 +107,18 @@ test("applyStatus: done, partial, already, failed keep files and message; null f
   assert.equal(s[0].status.kind, "failed");
   assert.deepEqual(s[0].status.files, []);
   assert.match(s[0].status.message, /internet/);
+});
+
+test("applyStatus: a new run replaces the previous run's files", () => {
+  const old = [{ format: "gif", path: "a_medium.gif", size: 1, url: "/out/a" }];
+  const neu = [{ format: "gif", path: "a_high.gif", size: 2, url: "/out/b" }];
+  let s = [ready("a", { status: { kind: "done", files: old } })];
+  s = startRun(s, ["a"]);
+  assert.deepEqual(s[0].status.files, []);
+  s = applyStatus(s, ev("a", "making", { stage: "find", pct: 0.01 }));
+  assert.deepEqual(s[0].status.files, []);
+  s = applyStatus(s, ev("a", "done", { pct: 1, files: neu }));
+  assert.deepEqual(s[0].status.files, neu);
 });
 
 test("applyStatus: ready clears the status (cancelled, back to waiting)", () => {
