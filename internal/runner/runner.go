@@ -83,13 +83,14 @@ func runJob(ctx context.Context, cr ClipRunner, j Job, s settings.Settings, form
 	p := newProgress(s, formats, length)
 	var wrote, skipped []File
 	var failed []string
+	var formatErr error // first StageFailed error: clip returns only "N of M outputs failed"
 
 	// OnEvent runs under clip's mutex: only cheap bookkeeping and emit here.
 	var pending *Event
 	var lastAt time.Time
 	lastStage := ""
 	making := func(stage string, stagePct float64) {
-		e := Event{JobID: j.ID, Kind: "making", Stage: stage, Pct: p.at(stage, stagePct), StagePct: stagePct}
+		e := Event{JobID: j.ID, Kind: "making", Stage: stage, Pct: p.at(stage, stagePct), StagePct: capStage(stagePct)}
 		t := now()
 		if stage != lastStage || t.Sub(lastAt) >= minGap {
 			emit(e)
@@ -112,6 +113,9 @@ func runJob(ctx context.Context, cr ClipRunner, j Job, s settings.Settings, form
 			p.skip(format)
 			skipped = append(skipped, File{Format: format, Path: e.Path})
 		case clip.StageFailed:
+			if formatErr == nil {
+				formatErr = e.Err
+			}
 			if format != "" {
 				p.finish(format)
 				failed = append(failed, strings.ToUpper(format))
@@ -140,6 +144,10 @@ func runJob(ctx context.Context, cr ClipRunner, j Job, s settings.Settings, form
 		done.Kind = "ready"
 	case err != nil:
 		log.Printf("job %s: %v", j.ID, err)
+		if formatErr != nil && formatErr != err {
+			log.Printf("job %s: %v", j.ID, formatErr)
+			err = formatErr // the real cause, for PlainError
+		}
 		if len(wrote) > 0 {
 			done.Kind, done.Files = "partial", wrote
 			done.Message = PlainError(err, s.DebugMode)
@@ -161,6 +169,15 @@ func runJob(ctx context.Context, cr ClipRunner, j Job, s settings.Settings, form
 		}
 	}
 	emit(done)
+}
+
+// capStage keeps a measured stage label below 100% (a stage can report 1
+// before the clip is done, e.g. the mp4 faststart rewrite); -1 stays -1.
+func capStage(f float64) float64 {
+	if f < 0 {
+		return -1
+	}
+	return min(f, 0.99)
 }
 
 // pickFormats keeps known formats once each, in order; none left means gif.

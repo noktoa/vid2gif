@@ -284,8 +284,35 @@ func TestRunThrottlesMaking(t *testing.T) {
 	if dl[0].StagePct != 0.001 {
 		t.Errorf("first = %v, want 0.001", dl[0].StagePct)
 	}
-	if dl[len(dl)-1].StagePct != 1 {
-		t.Errorf("last = %v, want 1", dl[len(dl)-1].StagePct)
+	for i, e := range dl {
+		if e.StagePct > 0.99 || (i > 0 && e.StagePct < dl[i-1].StagePct) {
+			t.Fatalf("stage pct %d = %v (prev %v), want non-decreasing and <= 0.99", i, e.StagePct, dl[max(i-1, 0)].StagePct)
+		}
+	}
+	if dl[len(dl)-1].StagePct != 0.99 { // the reported 1.0, capped
+		t.Errorf("last = %v, want 0.99", dl[len(dl)-1].StagePct)
+	}
+}
+
+// A lone format's failure is classified by its own error, not clip's
+// aggregate "1 of 1 outputs failed".
+func TestRunClassifiesFormatError(t *testing.T) {
+	fakeClock(t, time.Second)
+	for raw, want := range map[string]string{
+		"rename a b: Access is denied.": "Couldn't save to that folder. Pick another one.",
+		"yt-dlp: exit status 1\nERROR: [youtube] x: Sign in to confirm you're not a bot": "This site isn't working with the app right now. An update may fix it.",
+	} {
+		fr := &fakeRunner{fn: func(ctx context.Context, o clip.Opts) error {
+			gif := naming.OutPath(o.OutDir, o.Name, "gif")
+			o.OnEvent(clip.Event{Stage: clip.StageFind, Pct: -1})
+			o.OnEvent(clip.Event{Stage: clip.StageEncode, Pct: -1, Path: gif})
+			o.OnEvent(clip.Event{Stage: clip.StageFailed, Pct: -1, Path: gif, Err: errors.New(raw)})
+			return errors.New("1 of 1 outputs failed")
+		}}
+		e := final(collect(context.Background(), fr, jobs(1), testSettings(t, "gif"), nil))["j1"]
+		if e.Kind != "failed" || e.Message != want {
+			t.Errorf("%q: final = %+v, want failed %q", raw, e, want)
+		}
 	}
 }
 
