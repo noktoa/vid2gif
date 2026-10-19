@@ -1,0 +1,13 @@
+<!doctype html>
+<!-- Throwaway page for the Task 8 smoke test; Task 9 replaces it. -->
+<html lang="en">
+<head><meta charset="utf-8"><title>vid2gif</title></head>
+<body>
+<pre id="out">Booting…</pre>
+<script>
+window.go.main.App.Boot()
+  .then(s => { document.getElementById('out').textContent = JSON.stringify(s, null, 2); })
+  .catch(e => { document.getElementById('out').textContent = 'Boot failed: ' + e; });
+</script>
+</body>
+</html>
