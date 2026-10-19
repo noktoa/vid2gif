@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".superpowers/brainstorm/1543-1792380960/content/main-window-layouts.html"
+        ],
+        "createdAt": "2026-10-19T04:02:13.258Z",
+        "reason": "builder's call: findings are the window frame, custom caption buttons and the video player frame in a throwaway mock, meant to sit flush; not confirmed by the user"
+      }
+    ]
+  }
+}

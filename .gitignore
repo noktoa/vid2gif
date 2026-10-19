@@ -6,3 +6,4 @@
 /.env
 /.tools/
 .claude/worktrees
+/dist/
