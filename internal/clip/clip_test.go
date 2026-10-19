@@ -10,7 +10,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"vid2gif/internal/debuglog"
 	"vid2gif/internal/encode"
 )
 
@@ -24,13 +26,13 @@ func fakePipeline(out io.Writer) (Pipeline, *fakeState) {
 	st := &fakeState{}
 	return Pipeline{
 		title: func(ctx context.Context, url string) (string, error) { return "My: Video", nil },
-		download: func(ctx context.Context, o Opts, tmpDir string, wantAudio bool) (string, error) {
+		download: func(ctx context.Context, o Opts, tmpDir string, wantAudio bool, _ func(float64)) (string, error) {
 			st.downloads++
 			st.wantAudio = wantAudio
 			p := filepath.Join(tmpDir, "clip.mkv")
 			return p, os.WriteFile(p, []byte("src"), 0o644)
 		},
-		encode: func(ctx context.Context, in, out string, eo encode.Opts) error {
+		encode: func(ctx context.Context, in, out string, eo encode.Opts, _ func(float64)) error {
 			st.encoded = append(st.encoded, eo.Format)
 			return os.WriteFile(out, []byte("data-"+eo.Format), 0o644)
 		},
@@ -170,11 +172,11 @@ func TestRunEncodeFailureContinuesAndCleansUp(t *testing.T) {
 	dir := t.TempDir()
 	p, _ := fakePipeline(io.Discard)
 	realEncode := p.encode
-	p.encode = func(ctx context.Context, in, out string, eo encode.Opts) error {
+	p.encode = func(ctx context.Context, in, out string, eo encode.Opts, pr func(float64)) error {
 		if eo.Format == "gif" {
 			return errors.New("boom")
 		}
-		return realEncode(ctx, in, out, eo)
+		return realEncode(ctx, in, out, eo, pr)
 	}
 	o := baseOpts(dir, "gif", "mp4")
 	o.Name = "demo"
@@ -190,7 +192,7 @@ func TestRunEncodeFailureContinuesAndCleansUp(t *testing.T) {
 func TestRunDownloadFailureLeavesNothing(t *testing.T) {
 	dir := t.TempDir()
 	p, _ := fakePipeline(io.Discard)
-	p.download = func(context.Context, Opts, string, bool) (string, error) { return "", errors.New("network down") }
+	p.download = func(context.Context, Opts, string, bool, func(float64)) (string, error) { return "", errors.New("network down") }
 	if err := p.Run(context.Background(), baseOpts(dir, "gif")); err == nil {
 		t.Fatal("expected error")
 	}
@@ -204,8 +206,8 @@ func TestRunCancelledContextCleansUp(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p, _ := fakePipeline(io.Discard)
 	realDownload := p.download
-	p.download = func(c context.Context, o Opts, tmp string, a bool) (string, error) {
-		f, err := realDownload(c, o, tmp, a)
+	p.download = func(c context.Context, o Opts, tmp string, a bool, pr func(float64)) (string, error) {
+		f, err := realDownload(c, o, tmp, a, pr)
 		cancel() // Ctrl+C arrives right after the download
 		return f, err
 	}
@@ -305,5 +307,248 @@ func TestYtdlpSectionRunsToEndWhenNoEnd(t *testing.T) {
 	args := ytdlpDownloadArgs(Opts{URL: "https://x", Start: 83.5}, "ffmpeg", "", "tmp", false)
 	if got := argAfter(args, "--download-sections"); got != "*83.5-inf" {
 		t.Errorf("section = %q; want *83.5-inf", got)
+	}
+}
+
+// TestMain doubles as a stand-in for yt-dlp/ffmpeg: with VID2GIF_HELPER set,
+// the test binary just sleeps so cancellation can be tested on a real process.
+func TestMain(m *testing.M) {
+	if os.Getenv("VID2GIF_HELPER") == "sleep" {
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+func collect(o *Opts) *[]Event {
+	var evs []Event
+	o.OnEvent = func(e Event) { evs = append(evs, e) }
+	return &evs
+}
+
+// stages collapses consecutive events of one stage (progress ticks).
+func stages(evs []Event) []string {
+	var s []string
+	for _, e := range evs {
+		if len(s) == 0 || s[len(s)-1] != e.Stage {
+			s = append(s, e.Stage)
+		}
+	}
+	return s
+}
+
+func TestRunEmitsEventsInOrder(t *testing.T) {
+	dir := t.TempDir()
+	p, _ := fakePipeline(io.Discard)
+	o := baseOpts(dir, "gif", "mp4")
+	evs := collect(&o)
+	if err := p.Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{StageFind, StageDownload, StageEncode, StageWrote, StageEncode, StageWrote}
+	if got := stages(*evs); !slices.Equal(got, want) {
+		t.Fatalf("stages = %v; want %v", got, want)
+	}
+	for _, e := range *evs {
+		switch e.Stage {
+		case StageEncode:
+			if filepath.Dir(e.Path) != dir {
+				t.Errorf("encode Path = %q; want final path in %s", e.Path, dir)
+			}
+		case StageWrote:
+			if strings.HasSuffix(e.Path, ".gif") && e.Size != int64(len("data-gif")) {
+				t.Errorf("gif size = %d", e.Size)
+			}
+			if strings.HasSuffix(e.Path, ".mp4") && e.Size != int64(len("data-mp4")) {
+				t.Errorf("mp4 size = %d", e.Size)
+			}
+		}
+	}
+}
+
+func TestRunEmitsSkippedWhenAllExist(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "demo.gif"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(dir, "demo.mp4"), []byte("x"), 0o644)
+	p, _ := fakePipeline(io.Discard)
+	o := baseOpts(dir, "gif", "mp4")
+	o.Name = "demo"
+	evs := collect(&o)
+	if err := p.Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range *evs {
+		switch e.Stage {
+		case StageSkipped:
+			n++
+		case StageDownload, StageEncode:
+			t.Errorf("unexpected %s event", e.Stage)
+		}
+	}
+	if n != 2 {
+		t.Errorf("skipped events = %d; want 2", n)
+	}
+}
+
+func TestRunEmitsFailedAndContinues(t *testing.T) {
+	dir := t.TempDir()
+	p, _ := fakePipeline(io.Discard)
+	realEncode := p.encode
+	p.encode = func(ctx context.Context, in, out string, eo encode.Opts, pr func(float64)) error {
+		if eo.Format == "gif" {
+			return errors.New("boom")
+		}
+		return realEncode(ctx, in, out, eo, pr)
+	}
+	o := baseOpts(dir, "gif", "mp4")
+	o.Name = "demo"
+	evs := collect(&o)
+	if err := p.Run(context.Background(), o); err == nil {
+		t.Fatal("expected error")
+	}
+	got := stages(*evs)
+	if tail := got[len(got)-4:]; !slices.Equal(tail, []string{StageEncode, StageFailed, StageEncode, StageWrote}) {
+		t.Fatalf("stages = %v", got)
+	}
+	for _, e := range *evs {
+		if e.Stage == StageFailed && (e.Err == nil || e.Path != filepath.Join(dir, "demo.gif")) {
+			t.Errorf("failed event = %+v", e)
+		}
+	}
+}
+
+// Review Focus 5: a cancel mid-download or mid-encode leaves nothing in OutDir.
+func TestRunCancelRemovesTempDir(t *testing.T) {
+	for _, where := range []string{"download", "encode"} {
+		t.Run(where, func(t *testing.T) {
+			dir := t.TempDir()
+			ctx, cancel := context.WithCancel(context.Background())
+			p, _ := fakePipeline(io.Discard)
+			if where == "download" {
+				p.download = func(c context.Context, o Opts, tmp string, a bool, _ func(float64)) (string, error) {
+					os.WriteFile(filepath.Join(tmp, "clip.mkv.part"), []byte("half"), 0o644)
+					cancel()
+					return "", c.Err()
+				}
+			} else {
+				p.encode = func(c context.Context, in, out string, eo encode.Opts, _ func(float64)) error {
+					os.WriteFile(out, []byte("half"), 0o644)
+					cancel()
+					return c.Err()
+				}
+			}
+			o := baseOpts(dir, "gif", "mp4")
+			evs := collect(&o)
+			if err := p.Run(ctx, o); !errors.Is(err, context.Canceled) {
+				t.Errorf("err = %v; want context.Canceled", err)
+			}
+			if got := dirNames(t, dir); len(got) != 0 {
+				t.Errorf("leftovers in OutDir: %v", got)
+			}
+			if last := (*evs)[len(*evs)-1]; last.Stage != StageFailed {
+				t.Errorf("last event = %+v; want failed", last)
+			}
+		})
+	}
+}
+
+// A real child process must end when the context is cancelled.
+func TestRealToolsStopOnCancel(t *testing.T) {
+	t.Setenv("VID2GIF_HELPER", "sleep")
+	p := New(os.Args[0], os.Args[0], "", "", io.Discard)
+	for name, run := range map[string]func(context.Context) error{
+		"download": func(ctx context.Context) error {
+			_, err := p.download(ctx, Opts{URL: "https://x"}, t.TempDir(), false, nil)
+			return err
+		},
+		"encode": func(ctx context.Context) error {
+			return p.encode(ctx, "in", filepath.Join(t.TempDir(), "out.gif"), encode.Opts{Format: "gif"}, nil)
+		},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		start := time.Now()
+		err := run(ctx)
+		cancel()
+		if err == nil || time.Since(start) > 15*time.Second {
+			t.Errorf("%s: err=%v after %v; want prompt failure", name, err, time.Since(start))
+		}
+	}
+}
+
+func TestRunNilOnEventStillWorks(t *testing.T) {
+	p, _ := fakePipeline(io.Discard)
+	if err := p.Run(context.Background(), baseOpts(t.TempDir(), "gif")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readLog(t *testing.T, dir string) string {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(dir, "*.log"))
+	if len(files) != 1 {
+		t.Fatalf("log files = %v", files)
+	}
+	b, _ := os.ReadFile(files[0])
+	return string(b)
+}
+
+func TestWithLogRecordsCommandsAndEvents(t *testing.T) {
+	logDir := t.TempDir()
+	p, _ := fakePipeline(io.Discard)
+	p = p.WithLog(debuglog.New(logDir, true))
+	o := baseOpts(t.TempDir(), "gif")
+	o.URL = "https://example.com/v?token=SECRET&x=1"
+	if err := p.Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	got := readLog(t, logDir)
+	for _, want := range []string{"yt-dlp", "ffmpeg", "--download-sections", "stage=find", "stage=download", "stage=encode", "stage=wrote"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("log missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "SECRET") {
+		t.Errorf("log leaked the query:\n%s", got)
+	}
+}
+
+func TestWithLogRecordsFinalError(t *testing.T) {
+	logDir := t.TempDir()
+	p, _ := fakePipeline(io.Discard)
+	p.download = func(context.Context, Opts, string, bool, func(float64)) (string, error) {
+		return "", errors.New("network down")
+	}
+	p = p.WithLog(debuglog.New(logDir, true))
+	p.Run(context.Background(), baseOpts(t.TempDir(), "gif"))
+	if got := readLog(t, logDir); !strings.Contains(got, "network down") {
+		t.Errorf("final error not logged:\n%s", got)
+	}
+}
+
+func TestWithLogDisabledWritesNothing(t *testing.T) {
+	logDir := filepath.Join(t.TempDir(), "logs")
+	p, _ := fakePipeline(io.Discard)
+	p = p.WithLog(debuglog.New(logDir, false))
+	if err := p.Run(context.Background(), baseOpts(t.TempDir(), "gif")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(logDir); !os.IsNotExist(err) {
+		t.Errorf("disabled log created %s (err=%v)", logDir, err)
+	}
+}
+
+func TestLineWriterLogsEachLine(t *testing.T) {
+	logDir := t.TempDir()
+	w := &lineWriter{log: debuglog.New(logDir, true), prefix: "yt-dlp"}
+	w.Write([]byte("[download]  10%\r[download]  20%\nsecond "))
+	w.Write([]byte("line\n"))
+	w.Write([]byte("tail"))
+	w.Close()
+	got := readLog(t, logDir)
+	for _, want := range []string{"yt-dlp: [download]  10%", "yt-dlp: [download]  20%", "yt-dlp: second line", "yt-dlp: tail"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
 	}
 }
