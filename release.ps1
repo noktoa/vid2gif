@@ -1,4 +1,4 @@
-# Interactive release: build vid2gif.exe, write checksums.txt, publish a GitHub release via gh.
+# Interactive release: build vid2gif.exe and vid2gif-app.exe, write checksums.txt, publish a GitHub release via gh.
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
@@ -18,6 +18,11 @@ if ($LASTEXITCODE) { throw 'go build failed' }
 # deps.json must sit next to the exe, so it ships with it
 Copy-Item deps.json $dist
 
+# the desktop app embeds deps.json, so it ships alone
+Write-Host 'Building vid2gif-app.exe...'
+go build -trimpath -tags desktop,production -ldflags '-H windowsgui -s -w' -o "$dist\vid2gif-app.exe" ./cmd/vid2gif-app
+if ($LASTEXITCODE) { throw 'go build (app) failed' }
+
 # sha256sum format; LF endings, no BOM
 $sums = Get-ChildItem $dist -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" }
 [IO.File]::WriteAllText("$dist\checksums.txt", ($sums -join "`n") + "`n")
@@ -28,5 +33,5 @@ if ((Read-Host "Push tag and publish release $tag? [y/N]") -ne 'y') { Write-Host
 git tag $tag
 git push origin $tag
 if ($LASTEXITCODE) { throw 'git push failed' }
-gh release create $tag "$dist\vid2gif.exe" "$dist\deps.json" "$dist\checksums.txt" --title $tag --generate-notes
+gh release create $tag "$dist\vid2gif.exe" "$dist\vid2gif-app.exe" "$dist\deps.json" "$dist\checksums.txt" --title $tag --generate-notes
 if ($LASTEXITCODE) { throw 'gh release create failed' }

@@ -17,3 +17,21 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test "cmd/vid2gif-app/frontend/*.test.js"
+
+  # The app is Windows-only; this builds it the way release.ps1 does and runs
+  # the Windows-only tests (internal/proc, filesrv symlinks).
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o dist/vid2gif-app.exe ./cmd/vid2gif-app
+      - run: go vet ./...
+      - run: go test ./...

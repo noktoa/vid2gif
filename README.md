@@ -4,7 +4,7 @@ vid2gif cuts a segment out of an online video and saves it as a GIF, an animated
 
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) fetches just the part of the video you asked for, and [ffmpeg](https://ffmpeg.org) turns it into the output format. YouTube also needs a JavaScript runtime, which is [deno](https://deno.com). vid2gif runs all three and keeps them at pinned versions, so your results don't change when one of them updates.
 
-Supported platforms: Windows (amd64) and Linux (amd64, arm64).
+Supported platforms: Windows (amd64) and Linux (amd64, arm64). The desktop app is Windows only.
 
 ## Quick start
 
@@ -17,6 +17,30 @@ go build -o vid2gif.exe ./cmd/vid2gif   # produces vid2gif.exe on Windows
 ```
 
 That writes `gifs/<video title>_2-5.gif`. Keep `deps.json` in the same folder as the executable, because that's where vid2gif looks for it (if it isn't there, the current folder is used, which is what makes `go run ./cmd/vid2gif` work from the repo root).
+
+## Desktop app
+
+If you'd rather not use a terminal, there is a Windows app: paste a link, pick the moment you want, and it makes the GIF (or WebP, MP4 or MOV) for you. It uses the same engine as the command line, so the files come out the same.
+
+- **Download:** `vid2gif-app.exe` is on the [releases page](https://github.com/noktoa/vid2gif/releases). It is a single file that doesn't need anything installed first.
+- **First launch:** the helper tools (yt-dlp, ffmpeg and deno, about 250 MB) are downloaded once, on install or on first launch. The app shows a progress screen while it does, and it only needs to happen once.
+- **Where things live:** your settings, logs and the app's web view data are in `%LOCALAPPDATA%\vid2gif`. The helper tools are in a `bin` folder next to the app. (Set `VID2GIF_BIN` to put them somewhere else, as with the command line.)
+- **If something goes wrong:** turn on Settings → Troubleshooting. The app then writes a log file for each run to `%LOCALAPPDATA%\vid2gif\logs`, which you can send along with a bug report.
+- **Windows only.** The Linux build is the command line.
+
+To build it from source you need Go, and nothing else:
+
+```powershell
+go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o dist/vid2gif-app.exe ./cmd/vid2gif-app
+```
+
+The page inside the app is plain JavaScript in `cmd/vid2gif-app/frontend/`. Its tests need Node.js 22 or newer:
+
+```
+node --test "cmd/vid2gif-app/frontend/*.test.js"
+```
+
+`vid2gif-app.exe --install-tools` downloads the helper tools without opening a window (an installer can use it). It writes a log to `%TEMP%\vid2gif-install.log`.
 
 ## Examples
 
@@ -123,7 +147,7 @@ Use `--platform linux/arm64` for arm64. It runs under emulation and is slow.
 
 The integration test installs the tools into a temporary folder unless `VID2GIF_BIN` is set (see [Where the tools live](#where-the-tools-live)); set it to reuse an existing folder such as `bin/` so nothing is downloaded again.
 
-On GitHub, `.github/workflows/ci.yml` checks gofmt, runs `go vet` and the unit tests on every push and pull request. `integration.yml` runs the integration test on Windows, Linux amd64 and Linux arm64 every week and whenever `deps.json` or the code that uses it changes. The pinned tools are about 250 MB, so they're cached: the Linux jobs reuse Docker layers (`build/Dockerfile.test` puts the tools in their own layer, which only rebuilds when `deps.json`, `go.mod`, `go.sum` or the installer changes), and the Windows job caches the tools folder. The weekly run skips those caches so it still catches a pinned download that has been removed upstream. Neither workflow contacts YouTube; the integration test only downloads the pinned tools from GitHub releases.
+On GitHub, `.github/workflows/ci.yml` checks gofmt, runs `go vet`, the Go unit tests and the app's JavaScript tests on every push and pull request, and a second job builds the desktop app and runs the Go tests on Windows. `integration.yml` runs the integration test on Windows, Linux amd64 and Linux arm64 every week and whenever `deps.json` or the code that uses it changes. The pinned tools are about 250 MB, so they're cached: the Linux jobs reuse Docker layers (`build/Dockerfile.test` puts the tools in their own layer, which only rebuilds when `deps.json`, `go.mod`, `go.sum` or the installer changes), and the Windows job caches the tools folder. The weekly run skips those caches so it still catches a pinned download that has been removed upstream. Neither workflow contacts YouTube; the integration test only downloads the pinned tools from GitHub releases.
 
 ## Architecture
 
@@ -136,6 +160,14 @@ flowchart LR
     deps["internal/deps<br/>deps.json, version checks, installer"]
     clip["internal/clip<br/>download and encode pipeline"]
     encode["internal/encode<br/>quality presets, ffmpeg arguments"]
+    app["cmd/vid2gif-app<br/>Windows window (Wails)"]
+    appcore["internal/appcore<br/>what the page can call"]
+    settings["internal/settings<br/>saved preferences"]
+    debuglog["internal/debuglog<br/>opt-in log files"]
+    lookup["internal/lookup<br/>links to titles and thumbnails"]
+    runner["internal/runner<br/>clip queue, one at a time"]
+    filesrv["internal/filesrv<br/>serves previews to the window"]
+    proc["internal/proc<br/>hides tool console windows"]
     bin[("bin/<br/>yt-dlp, ffmpeg, deno")]
     github[("GitHub releases")]
     site[("video site")]
@@ -143,6 +175,19 @@ flowchart LR
     cli --> naming
     cli --> deps
     cli --> clip
+    app --> appcore
+    appcore --> settings
+    appcore --> debuglog
+    appcore --> lookup
+    appcore --> runner
+    appcore --> filesrv
+    appcore --> deps
+    runner --> clip
+    runner --> naming
+    lookup --> proc
+    clip --> proc
+    encode --> proc
+    deps --> proc
     clip --> naming
     clip --> encode
     deps --> bin
@@ -150,6 +195,22 @@ flowchart LR
     clip -->|"runs"| bin
     bin -.->|"yt-dlp fetches the section"| site
 ```
+
+Each package in one line:
+
+- `cmd/vid2gif`: the command line: flags, exit codes.
+- `internal/naming`: parses times and formats, builds output file names.
+- `internal/deps`: reads `deps.json`, checks tool versions, downloads and verifies the tools.
+- `internal/clip`: the download and encode pipeline for one clip.
+- `internal/encode`: quality presets and ffmpeg arguments.
+- `cmd/vid2gif-app`: the Windows desktop app. A thin Wails window over `internal/appcore`; `--install-tools` installs the tools headlessly.
+- `internal/appcore`: the app's logic behind the methods the page calls (settings, lookups, runs, tool setup). It doesn't import Wails, so it is tested on Linux too.
+- `internal/settings`: loads and saves the app's preferences.
+- `internal/debuglog`: the opt-in diagnostic log, one file per run, with URLs scrubbed of anything that identifies you or signs a media request.
+- `internal/lookup`: turns pasted links into videos with titles, durations and thumbnails, using one yt-dlp call per link.
+- `internal/runner`: makes a queue of clips one after another and turns the pipeline's events into the states the app shows.
+- `internal/filesrv`: serves the generated previews to the app's window, only from allowed folders and only media files.
+- `internal/proc`: stops tool child processes from flashing console windows on Windows.
 
 What happens during one `clip` run:
 
