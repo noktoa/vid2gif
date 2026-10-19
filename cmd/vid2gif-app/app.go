@@ -16,7 +16,7 @@ import (
 	"vid2gif/internal/settings"
 )
 
-// version is set by release builds: -ldflags "-X main.version=v0.1.0".
+// version is set by release builds: -ldflags "-X main.version=0.1.0".
 var version = "dev"
 
 // App is bound to the page as window.go.main.App. Every exported method is
@@ -28,15 +28,20 @@ type App struct {
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 
-// shutdown stops any run and gives it a moment to delete its temp folder.
-func (a *App) shutdown(context.Context) { a.core.Shutdown(5 * time.Second) }
+// shutdown stops any run and waits for it to delete its temp folder: longer
+// than the tools' 5 s WaitDelay, so a slow-dying tool can't cut it short.
+func (a *App) shutdown(context.Context) { a.core.Shutdown(8 * time.Second) }
 
 func (a *App) emit(name string, data any) { runtime.EventsEmit(a.ctx, name, data) }
 
-func (a *App) Boot() appcore.BootState {
-	a.core.Log.Printf("vid2gif %s on %s", version, windowsVersion())
-	return a.core.Boot()
-}
+// header is the first lines of a troubleshooting log.
+func header() []string { return []string{"vid2gif " + version + " on " + windowsVersion()} }
+
+// Settings answers at once, so the page can apply the theme before Boot's
+// tool checks finish.
+func (a *App) Settings() settings.Settings { return a.core.Current() }
+
+func (a *App) Boot() appcore.BootState { return a.core.Boot() }
 
 func (a *App) Install()                       { a.core.Install() }
 func (a *App) Add(text string) []appcore.Slip { return a.core.Add(text) }

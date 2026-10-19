@@ -64,6 +64,7 @@
   };
 
   const App = {
+    async Settings() { return structuredClone(settings); },
     async Boot() {
       return {
         needsSetup: params.has("setup"), needsAdmin: false,

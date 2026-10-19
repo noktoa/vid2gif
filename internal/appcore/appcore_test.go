@@ -76,7 +76,7 @@ func newTestCore(t *testing.T) (*Core, *recorder) {
 	c := New(rec.emit, debuglog.New(filepath.Join(dir, "logs"), false), filepath.Join(dir, "settings.json"), filepath.Join(dir, "bin"), deps.Pins{})
 	c.resolve = func() (Tools, error) { return Tools{"yt", "ff", "deno"}, nil }
 	s := c.Current()
-	s.OutDir = filepath.Join(dir, "out")
+	s.OutDir = filepath.Join(t.TempDir(), "out") // outside the data root
 	if err := c.SaveSettings(s); err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +134,72 @@ func TestSaveSettingsAppliesDebugModeAndAllowsOutDir(t *testing.T) {
 	}
 	if _, ok := c.Files.URL(filepath.Join(s.OutDir, "a.gif")); !ok {
 		t.Error("new OutDir is not allowed for previews")
+	}
+}
+
+func TestSaveSettingsRefusesUnusableFolders(t *testing.T) {
+	c, _ := newTestCore(t)
+	good := c.Current()
+	dataRoot := filepath.Dir(c.settingsPath)
+	root := filepath.VolumeName(good.OutDir) + string(filepath.Separator)
+	for _, dir := range []string{`\\host\share\clips`, `\\?\C:\clips`, `\\.\C:\clips`, root, `clips`, dataRoot, filepath.Join(dataRoot, "logs")} {
+		s := good
+		s.OutDir = dir
+		err := c.SaveSettings(s)
+		if err == nil || err.Error() != "That folder can't be used. Pick another one." {
+			t.Errorf("SaveSettings(OutDir %q) = %v", dir, err)
+		}
+		if c.Current().OutDir != good.OutDir {
+			t.Fatalf("memory changed to %q", c.Current().OutDir)
+		}
+	}
+}
+
+func TestSaveSettingsFailedWriteLeavesMemory(t *testing.T) {
+	c, _ := newTestCore(t)
+	before := c.Current()
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.settingsPath = filepath.Join(blocker, "settings.json") // its folder is a file
+	s := before
+	s.Theme = "lilac"
+	s.OutDir = filepath.Join(t.TempDir(), "new")
+	s.DebugMode = true
+	if err := c.SaveSettings(s); err == nil {
+		t.Fatal("save into a file's folder succeeded")
+	}
+	if got := c.Current(); got.Theme != before.Theme || got.OutDir != before.OutDir || got.DebugMode {
+		t.Errorf("memory changed after a failed save: %+v", got)
+	}
+}
+
+func TestDebugHeaderWrittenWhenTroubleshootingTurnsOn(t *testing.T) {
+	c, _ := newTestCore(t)
+	c.Header = func() []string { return []string{"vid2gif test-version on Windows 99"} }
+	s := c.Current()
+	s.DebugMode = true
+	if err := c.SaveSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(c.Log.Dir(), "*.log"))
+	if len(files) != 1 {
+		t.Fatalf("log files = %v", files)
+	}
+	b, _ := os.ReadFile(files[0])
+	for _, want := range []string{"vid2gif test-version on Windows 99", "folders:", "tool: yt-dlp", "tool: ffmpeg", "tool: deno"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("log lacks %q:\n%s", want, b)
+		}
+	}
+	// Saving again with it still on does not repeat the header.
+	if err := c.SaveSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	b2, _ := os.ReadFile(files[0])
+	if strings.Count(string(b2), "test-version") != 1 {
+		t.Errorf("header repeated:\n%s", b2)
 	}
 }
 
@@ -318,16 +384,22 @@ func TestAddReturnsPlaceholdersThenReplaces(t *testing.T) {
 }
 
 func TestInstallEvents(t *testing.T) {
+	perm := fmt.Errorf("deno: %w", &fs.PathError{Op: "mkdir", Path: `C:\Program Files\vid2gif\bin`, Err: fs.ErrPermission})
 	for _, tc := range []struct {
 		err       error
+		writable  bool
 		wantEvent string
 		wantAdmin bool
 	}{
-		{nil, "setup:done", false},
-		{fmt.Errorf("deno: %w", &fs.PathError{Op: "mkdir", Path: `C:\Program Files\vid2gif\bin`, Err: fs.ErrPermission}), "setup:error", true},
-		{errors.New("ffmpeg: dial tcp: no such host"), "setup:error", false},
+		{nil, true, "setup:done", false},
+		{perm, false, "setup:error", true},
+		// A permission error on some other file while bin is writable
+		// (antivirus, a locked exe) is not an admin problem.
+		{perm, true, "setup:error", false},
+		{errors.New("ffmpeg: dial tcp: no such host"), true, "setup:error", false},
 	} {
 		c, rec := newTestCore(t)
+		c.writable = func(string) bool { return tc.writable }
 		c.install = func(on func(string, int64, int64)) error {
 			on("deno", 5, 10)
 			return tc.err
@@ -396,10 +468,15 @@ func TestOpenablePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Files.Allow(filepath.Dir(made))
+	never := filepath.Join(filepath.Dir(made), "never.gif") // in the folder, never made
+	if err := os.WriteFile(never, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.status(runner.Event{Kind: "done", Files: []runner.File{{Format: "gif", Path: made}}}) // issues its URL
 	stats := 0
 	c.stat = func(p string) (os.FileInfo, error) { stats++; return os.Stat(p) }
 
-	for _, p := range []string{``, `rel\a.gif`, `rel/a.gif`, `\host\share\a.gif`, `//host/share/a.gif`, `\?\C:\x\a.gif`, `\.\pipe\x`} {
+	for _, p := range []string{``, `rel\a.gif`, `rel/a.gif`, `\\host\share\a.gif`, `//host/share/a.gif`, `\\?\C:\x\a.gif`, `\\.\pipe\x`} {
 		if _, _, ok := c.OpenablePath(p); ok {
 			t.Errorf("OpenablePath(%q) accepted", p)
 		}
@@ -418,6 +495,9 @@ func TestOpenablePath(t *testing.T) {
 	}
 	if _, _, ok := c.OpenablePath(made); !ok {
 		t.Error("made file in an allowed folder rejected")
+	}
+	if _, _, ok := c.OpenablePath(never); ok {
+		t.Error("never-made file in an old output folder accepted")
 	}
 	if err := os.MkdirAll(c.binDir, 0o755); err != nil {
 		t.Fatal(err)

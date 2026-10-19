@@ -496,9 +496,12 @@ makeBtn.addEventListener("click", async () => {
   if (running) return App.Stop();
   if (starting) return;
   starting = true;
-  // typed-but-unchecked times are validated first, so jobs carry what was typed
-  await Promise.all(S.needsCheck(slips).map((id) => validate(id, slips.find((x) => x.id === id)?.badField || "start")));
-  starting = false;
+  try {
+    // typed-but-unchecked times are validated first, so jobs carry what was typed
+    await Promise.all(S.needsCheck(slips).map((id) => validate(id, slips.find((x) => x.id === id)?.badField || "start")));
+  } finally {
+    starting = false; // a rejected Validate must not leave the button dead
+  }
   const jobs = S.readyJobs(slips);
   if (!jobs.length) return;
   running = true;
@@ -569,6 +572,10 @@ on("setup:needed", () => { if ($("setup").hidden) showSetup(false); });
 $("setup-retry").addEventListener("click", () => showSetup(false));
 
 // ---------- start ----------
+// Settings answers at once: apply the theme before Boot's tool checks (about
+// half a second) so a mint or lilac window never flashes grey.
+settings = await App.Settings();
+showSettings();
 const boot = await App.Boot();
 settings = boot.settings;
 binDir = boot.binDir;

@@ -40,6 +40,7 @@ func main() {
 	}
 	app := &App{}
 	app.core = appcore.New(app.emit, log, settingsPath, binDir(), pins)
+	app.core.Header = header
 	err = wails.Run(&options.App{
 		Title:     "vid2gif",
 		Width:     1000,

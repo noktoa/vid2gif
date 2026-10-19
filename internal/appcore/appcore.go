@@ -128,6 +128,9 @@ const (
 type Core struct {
 	Log   *debuglog.Log
 	Files *filesrv.Server
+	// Header gives the first debug-log lines (app and Windows version); the
+	// folders and tools follow. Written at Boot and whenever logging turns on.
+	Header func() []string
 
 	emit         Emit
 	settingsPath string
@@ -135,11 +138,12 @@ type Core struct {
 	pins         deps.Pins
 
 	// The side-effecting steps, swapped in tests.
-	resolve func() (Tools, error)
-	lookup  func(ctx context.Context, t Tools, link string) (string, []lookup.Video, error)
-	clip    func(t Tools) runner.ClipRunner
-	install func(onProgress func(tool string, done, total int64)) error
-	stat    func(string) (os.FileInfo, error)
+	resolve  func() (Tools, error)
+	lookup   func(ctx context.Context, t Tools, link string) (string, []lookup.Video, error)
+	clip     func(t Tools) runner.ClipRunner
+	install  func(onProgress func(tool string, done, total int64)) error
+	stat     func(string) (os.FileInfo, error)
+	writable func(dir string) bool
 
 	base    context.Context // cancelled by Shutdown
 	stopAll context.CancelFunc
@@ -177,6 +181,7 @@ func New(emit Emit, log *debuglog.Log, settingsPath, binDir string, pins deps.Pi
 		return clip.New(t.YtDlp, t.FFmpeg, t.Deno, "", io.Discard).WithLog(log)
 	}
 	c.stat = os.Stat
+	c.writable = canWrite
 	c.install = func(on func(string, int64, int64)) error {
 		return deps.InstallAllProgress(pins, binDir, logWriter{log}, on)
 	}
@@ -192,19 +197,23 @@ func (w logWriter) Write(p []byte) (int, error) {
 }
 
 // ResolveTools finds the pinned tools in binDir only: a tool missing there is
-// an error even if one is on PATH, and each must match its pin.
+// an error even if one is on PATH, and each must match its pin. The three
+// version checks run at once (yt-dlp alone takes most of a second).
 func ResolveTools(binDir string, pins deps.Pins) (Tools, error) {
 	r := deps.NewResolver(binDir)
 	var p [3]string
+	var errs [3]error
+	var wg sync.WaitGroup
 	for i, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
-		if _, err := os.Stat(filepath.Join(binDir, deps.ExeName(name))); err != nil {
-			return Tools{}, err
-		}
-		path, err := r.Resolve(name, pins[name], false)
-		if err != nil {
-			return Tools{}, err
-		}
-		p[i] = path
+		wg.Go(func() {
+			if _, errs[i] = os.Stat(filepath.Join(binDir, deps.ExeName(name))); errs[i] == nil {
+				p[i], errs[i] = r.Resolve(name, pins[name], false)
+			}
+		})
+	}
+	wg.Wait()
+	if err := errors.Join(errs[:]...); err != nil {
+		return Tools{}, err
 	}
 	return Tools{p[0], p[1], p[2]}, nil
 }
@@ -249,19 +258,38 @@ func (c *Core) Boot() BootState {
 	s := c.Current()
 	c.Files.Allow(s.OutDir)
 	st := BootState{Settings: s, Themes: settings.Themes, BinDir: c.binDir}
-	c.Log.Printf("folders: settings %s, logs %s, tools %s, output %s", c.settingsPath, c.Log.Dir(), c.binDir, s.OutDir)
 	t, err := c.resolve()
 	if err != nil {
 		c.Log.Printf("tools: %v", err)
 		st.NeedsSetup = true
-		st.NeedsAdmin = !canWrite(c.binDir)
-		return st
+		st.NeedsAdmin = !c.writable(c.binDir)
+	} else {
+		c.setTools(t)
 	}
-	for name, p := range map[string]string{"yt-dlp": t.YtDlp, "ffmpeg": t.FFmpeg, "deno": t.Deno} {
-		c.Log.Printf("tool: %s %s at %s", name, c.pins[name].Version, p)
-	}
-	c.setTools(t)
+	c.logHeader()
 	return st
+}
+
+// logHeader writes the lines a troubleshooting log starts with (spec, debug
+// mode). A disabled log ignores them.
+func (c *Core) logHeader() {
+	if c.Header != nil {
+		for _, l := range c.Header() {
+			c.Log.Printf("%s", l)
+		}
+	}
+	s := c.Current()
+	c.Log.Printf("folders: settings %s, logs %s, tools %s, output %s", c.settingsPath, c.Log.Dir(), c.binDir, s.OutDir)
+	c.mu.Lock()
+	t := c.tools
+	c.mu.Unlock()
+	for i, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
+		where := "not installed or not the pinned version"
+		if t != nil {
+			where = "verified at " + [3]string{t.YtDlp, t.FFmpeg, t.Deno}[i]
+		}
+		c.Log.Printf("tool: %s %s (pinned), %s", name, c.pins[name].Version, where)
+	}
 }
 
 // canWrite is false only for a permission error: other failures are left to
@@ -296,7 +324,7 @@ func (c *Core) Install() {
 		}
 	}
 	c.Log.Printf("install: %v", err)
-	if errors.Is(err, fs.ErrPermission) {
+	if errors.Is(err, fs.ErrPermission) && !c.writable(c.binDir) {
 		c.send("setup:error", SetupError{adminMsg, true})
 		return
 	}
@@ -461,8 +489,9 @@ func (c *Core) Shutdown(wait time.Duration) {
 	}
 }
 
-// SaveSettings checks s, keeps only known formats once each, applies it at
-// once (debug log switch, preview folder) and writes it to disk.
+// SaveSettings checks s, keeps only known formats once each, writes it to
+// disk and only then applies it (debug log switch, preview folder), so a
+// failed save never leaves Make using settings the window doesn't show.
 func (c *Core) SaveSettings(s settings.Settings) error {
 	if !slices.Contains(settings.Themes, s.Theme) {
 		return errors.New("That colour isn't available.")
@@ -473,17 +502,22 @@ func (c *Core) SaveSettings(s settings.Settings) error {
 	if s.Formats = cleanFormats(s.Formats); len(s.Formats) == 0 {
 		return errors.New("Pick at least one format.")
 	}
-	if strings.TrimSpace(s.OutDir) == "" {
-		return errors.New("Pick a folder to save to.")
+	if !settings.ValidOutDir(s.OutDir, filepath.Dir(c.settingsPath)) {
+		c.Log.Printf("settings: refused output folder %q", s.OutDir)
+		return errors.New("That folder can't be used. Pick another one.")
+	}
+	if err := s.Save(c.settingsPath); err != nil {
+		c.Log.Printf("settings: %v", err)
+		return errors.New("Couldn't save your settings.")
 	}
 	c.mu.Lock()
+	turnedOn := s.DebugMode && !c.settings.DebugMode
 	c.settings = s
 	c.mu.Unlock()
 	c.Log.SetEnabled(s.DebugMode)
 	c.Files.Allow(s.OutDir)
-	if err := s.Save(c.settingsPath); err != nil {
-		c.Log.Printf("settings: %v", err)
-		return errors.New("Couldn't save your settings.")
+	if turnedOn {
+		c.logHeader()
 	}
 	c.Log.Printf("settings: %+v", s)
 	return nil
@@ -501,19 +535,16 @@ func cleanFormats(in []string) []string {
 }
 
 // OpenablePath decides whether OpenFolder may show p: the output folder or
-// anything under it, a made file the preview server allows, or the
-// helper-files folder. Titles reach the page, so p is untrusted: UNC and
-// device paths (\host, \?\, \.\) and relative paths are refused before
+// anything under it, a made file (one the preview server issued a URL for),
+// or the helper-files folder. Titles reach the page, so p is untrusted: UNC
+// and device paths (\\host, \\?\, \\.\) and relative paths are refused before
 // anything touches the disk (a stat of a UNC path already connects to it).
 func (c *Core) OpenablePath(p string) (path string, isDir, ok bool) {
-	if p == "" || strings.HasPrefix(p, `\`) || strings.HasPrefix(p, `//`) {
+	if p == "" || !settings.LocalAbs(p) {
 		return "", false, false
 	}
 	p = filepath.Clean(p)
-	if !filepath.IsAbs(p) || strings.HasPrefix(p, `\`) {
-		return "", false, false
-	}
-	_, made := c.Files.URL(p)
+	made := c.Files.Issued(p)
 	if !made && !within(c.Current().OutDir, p) && !within(c.binDir, p) {
 		return "", false, false
 	}
