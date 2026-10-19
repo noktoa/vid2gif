@@ -14,6 +14,7 @@ import (
 	"vid2gif/internal/clip"
 	"vid2gif/internal/debuglog"
 	"vid2gif/internal/naming"
+	"vid2gif/internal/progress"
 	"vid2gif/internal/settings"
 )
 
@@ -80,7 +81,7 @@ func Run(ctx context.Context, cr ClipRunner, jobs []Job, s settings.Settings, lo
 
 func runJob(ctx context.Context, cr ClipRunner, j Job, s settings.Settings, formats []string, log *debuglog.Log, emit func(Event)) {
 	length := clipLen(j)
-	p := newProgress(s, formats, length)
+	p := progress.New(s.Quality, formats, s.FullSource, length)
 	var wrote, skipped []File
 	var failed []string
 	var formatErr error // first StageFailed error: clip returns only "N of M outputs failed"
@@ -89,35 +90,28 @@ func runJob(ctx context.Context, cr ClipRunner, j Job, s settings.Settings, form
 	var pending *Event
 	var lastAt time.Time
 	lastStage := ""
-	making := func(stage string, stagePct float64) {
-		e := Event{JobID: j.ID, Kind: "making", Stage: stage, Pct: p.at(stage, stagePct), StagePct: capStage(stagePct)}
-		t := now()
-		if stage != lastStage || t.Sub(lastAt) >= minGap {
-			emit(e)
-			pending, lastAt, lastStage = nil, t, stage
-			return
-		}
-		pending = &e
-	}
 	onEvent := func(e clip.Event) {
+		if stage, stagePct, overall, ok := p.Apply(e); ok {
+			ev := Event{JobID: j.ID, Kind: "making", Stage: stage, Pct: overall, StagePct: stagePct}
+			t := now()
+			if stage != lastStage || t.Sub(lastAt) >= minGap {
+				emit(ev)
+				pending, lastAt, lastStage = nil, t, stage
+			} else {
+				pending = &ev
+			}
+		}
 		format := strings.TrimPrefix(filepath.Ext(e.Path), ".")
 		switch e.Stage {
-		case clip.StageFind, clip.StageDownload:
-			making(e.Stage, e.Pct)
-		case clip.StageEncode:
-			making(format, e.Pct)
 		case clip.StageWrote:
-			p.finish(format)
 			wrote = append(wrote, File{format, e.Path, e.Size})
 		case clip.StageSkipped:
-			p.skip(format)
 			skipped = append(skipped, File{Format: format, Path: e.Path})
 		case clip.StageFailed:
 			if formatErr == nil {
 				formatErr = e.Err
 			}
 			if format != "" {
-				p.finish(format)
 				failed = append(failed, strings.ToUpper(format))
 			}
 		}
@@ -171,15 +165,6 @@ func runJob(ctx context.Context, cr ClipRunner, j Job, s settings.Settings, form
 	emit(done)
 }
 
-// capStage keeps a measured stage label below 100% (a stage can report 1
-// before the clip is done, e.g. the mp4 faststart rewrite); -1 stays -1.
-func capStage(f float64) float64 {
-	if f < 0 {
-		return -1
-	}
-	return min(f, 0.99)
-}
-
 // pickFormats keeps known formats once each, in order; none left means gif.
 func pickFormats(in []string) []string {
 	var out []string
@@ -205,76 +190,4 @@ func clipLen(j Job) float64 {
 		return j.DurationSec - j.Start
 	}
 	return 0
-}
-
-// progress turns stage fractions into one overall fraction: (finished stage
-// costs + current fraction × current cost) ÷ total cost.
-type progress struct {
-	stages []string
-	cost   map[string]float64
-	idx    int     // current stage
-	frac   float64 // of the current stage; held at 0 while unmeasured
-	last   float64 // overall, never decreases
-	known  bool
-}
-
-func newProgress(s settings.Settings, formats []string, length float64) *progress {
-	dl := "download"
-	if s.FullSource || slices.ContainsFunc(formats, func(f string) bool { return f == "mp4" || f == "mov" }) {
-		dl = "download-full"
-	}
-	p := &progress{
-		stages: append([]string{"find", "download"}, formats...),
-		cost:   map[string]float64{"find": findCost, "download": perSecond[s.Quality+"/"+dl] * length},
-		known:  length > 0,
-	}
-	for _, f := range formats {
-		p.cost[f] = perSecond[s.Quality+"/"+f] * length
-	}
-	return p
-}
-
-// at records that stage reported frac (-1 = unmeasured) and returns the
-// overall fraction: -1 when the length is unknown, else below 1 (only "done"
-// is 100%) and never lower than before. An absent stage is simply passed.
-func (p *progress) at(stage string, frac float64) float64 {
-	if i := slices.Index(p.stages, stage); i > p.idx {
-		p.idx, p.frac = i, 0
-	}
-	if p.idx < len(p.stages) && p.stages[p.idx] == stage && frac >= 0 {
-		p.frac = max(p.frac, min(frac, 1))
-	}
-	return p.overall()
-}
-
-func (p *progress) overall() float64 {
-	total, done := 0.0, 0.0
-	for i, s := range p.stages {
-		total += p.cost[s]
-		if i < p.idx {
-			done += p.cost[s]
-		} else if i == p.idx {
-			done += p.frac * p.cost[s]
-		}
-	}
-	if !p.known || total <= 0 {
-		return -1
-	}
-	// ponytail: 0.99 cap keeps the bar off 100% until done; finer cap not needed for a 1-px bar.
-	p.last = max(p.last, min(done/total, 0.99))
-	return p.last
-}
-
-// finish marks a format's stage complete (written or failed).
-func (p *progress) finish(format string) {
-	if i := slices.Index(p.stages, format); i >= p.idx {
-		p.idx, p.frac = i+1, 0
-	}
-}
-
-// skip drops an already-made format from the run's cost.
-func (p *progress) skip(format string) {
-	if i := slices.Index(p.stages, format); i > p.idx {
-		p.stages = slices.Delete(p.stages, i, i+1)
-	}
 }

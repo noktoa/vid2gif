@@ -12,7 +12,6 @@ import (
 
 	"vid2gif/internal/clip"
 	"vid2gif/internal/debuglog"
-	"vid2gif/internal/encode"
 	"vid2gif/internal/naming"
 	"vid2gif/internal/settings"
 )
@@ -417,19 +416,6 @@ func TestRunClipLengthFromDuration(t *testing.T) {
 	collect(context.Background(), fr, js, testSettings(t, "gif"), nil)
 	if fr.calls[0].DurationSec != 70 {
 		t.Errorf("DurationSec = %v, want 70", fr.calls[0].DurationSec)
-	}
-}
-
-func TestCostsCoverEveryStage(t *testing.T) {
-	if findCost <= 0 {
-		t.Error("no find cost")
-	}
-	for q := range encode.Presets {
-		for _, st := range append([]string{"download", "download-full"}, naming.AllFormats...) {
-			if perSecond[q+"/"+st] <= 0 {
-				t.Errorf("no cost for %s/%s", q, st)
-			}
-		}
 	}
 }
 

@@ -1,4 +1,4 @@
-package runner
+package progress
 
 // Seconds of work per stage, so the bar moves by how long each stage really
 // takes. Measured in Task 4b (2026-10-19): Windows 11, Ryzen 9 7900X, one home
