@@ -1,11 +1,11 @@
 package filesrv
 
 import (
-	"mime"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -208,7 +208,6 @@ func TestContentTypes(t *testing.T) {
 			t.Errorf("%s: got %q want %q", ext, got, want)
 		}
 	}
-	_ = mime.TypeByExtension
 }
 
 func TestMethods(t *testing.T) {
@@ -256,5 +255,77 @@ func TestConcurrent(t *testing.T) {
 	}
 	for i := 0; i < 8; i++ {
 		<-done
+	}
+}
+
+// hooked returns a server whose filesystem hooks count calls.
+func hooked(t *testing.T) (*Server, string, *int) {
+	s, dir := setup(t)
+	n := new(int)
+	s.evalSymlinks = func(p string) (string, error) { *n++; return filepath.EvalSymlinks(p) }
+	s.stat = func(p string) (os.FileInfo, error) { *n++; return os.Stat(p) }
+	return s, dir, n
+}
+
+func TestOutsidePathsNeverTouchDisk(t *testing.T) {
+	s, _, n := hooked(t)
+	outside := filepath.Join(t.TempDir(), "o.gif")
+	for _, p := range []string{
+		outside,
+		`\host\share\x.gif`,
+		`\?\C:\Windows\x.gif`,
+		`\.\pipe\x.gif`,
+		`//host/share/x.gif`,
+	} {
+		if w := get(s, "/out/"+escapePath(p)); w.Code != 404 {
+			t.Errorf("%s: code=%d", p, w.Code)
+		}
+	}
+	if *n != 0 {
+		t.Fatalf("filesystem touched %d times for outside paths", *n)
+	}
+}
+
+func TestInsidePathDoesTouchDisk(t *testing.T) { // guards the hook test above
+	s, dir, n := hooked(t)
+	p := write(t, dir, "a.gif", "x")
+	if w := get(s, "/out/"+escapePath(p)); w.Code != 200 || *n == 0 {
+		t.Fatalf("code=%d touched=%d", w.Code, *n)
+	}
+}
+
+func TestAllowRefusesEmptyBlankAndRoot(t *testing.T) {
+	s := New()
+	cwd, _ := os.Getwd()
+	root := filepath.VolumeName(cwd) + string(filepath.Separator)
+	for _, d := range []string{"", "   ", "\t", root} {
+		if s.Allow(d) {
+			t.Errorf("Allow(%q) accepted", d)
+		}
+	}
+	// Nothing was allowed, so the working directory is not served.
+	p := write(t, t.TempDir(), "a.gif", "x")
+	if _, ok := s.URL(p); ok {
+		t.Error("URL ok with no allowed folders")
+	}
+	if !s.Allow(t.TempDir()) {
+		t.Error("real folder refused")
+	}
+}
+
+func TestRejectsAlternateDataStream(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("ADS is Windows-only")
+	}
+	s, dir := setup(t)
+	p := filepath.Join(dir, "x.txt:evil.gif")
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Skipf("ADS unsupported: %v", err)
+	}
+	if w := get(s, "/out/"+escapePath(p)); w.Code != 404 {
+		t.Fatalf("code=%d", w.Code)
+	}
+	if _, ok := s.URL(p); ok {
+		t.Error("URL ok for ADS")
 	}
 }

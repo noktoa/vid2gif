@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -35,25 +36,40 @@ func init() {
 type Server struct {
 	mu   sync.RWMutex
 	dirs []string
+
+	// Filesystem hooks, swapped in tests to prove nothing is touched for
+	// paths outside the allowed folders.
+	evalSymlinks func(string) (string, error)
+	stat         func(string) (os.FileInfo, error)
 }
 
-func New() *Server { return &Server{} }
+func New() *Server { return &Server{evalSymlinks: filepath.EvalSymlinks, stat: os.Stat} }
 
-// Allow adds a folder the page may read from.
-func (s *Server) Allow(dir string) {
+// Allow adds a folder the page may read from. It ignores (and returns false
+// for) an empty or whitespace-only name and a filesystem root such as "/" or
+// a drive root, so a stray empty config value can never expose the working directory
+// or a whole drive.
+func (s *Server) Allow(dir string) bool {
+	if strings.TrimSpace(dir) == "" {
+		return false
+	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return
+		return false
 	}
 	abs = filepath.Clean(abs)
+	if filepath.Dir(abs) == abs {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, d := range s.dirs {
 		if d == abs {
-			return
+			return true
 		}
 	}
 	s.dirs = append(s.dirs, abs)
+	return true
 }
 
 func (s *Server) allowed() []string {
@@ -81,6 +97,10 @@ func (s *Server) URL(path string) (string, bool) {
 }
 
 func isMedia(p string) bool {
+	// Windows alternate data stream (x.txt:evil.gif) or odd drive-relative name.
+	if runtime.GOOS == "windows" && strings.Contains(filepath.Base(p), ":") {
+		return false
+	}
 	_, ok := mediaTypes[strings.ToLower(filepath.Ext(p))]
 	return ok
 }
@@ -110,21 +130,36 @@ func (s *Server) resolve(p string) (string, bool) {
 	if !filepath.IsAbs(p) || !isMedia(p) {
 		return "", false
 	}
-	real, err := filepath.EvalSymlinks(filepath.Clean(p))
+	p = filepath.Clean(p)
+	// Lexical containment first: nothing (UNC shares, pipes, dead drives) is
+	// touched on disk for a path outside every allowed folder.
+	lexical := false
+	for _, d := range s.allowed() {
+		if within(d, p) {
+			lexical = true
+			break
+		}
+	}
+	if !lexical {
+		return "", false
+	}
+	real, err := s.evalSymlinks(p)
 	if err != nil || !isMedia(real) {
 		return "", false
 	}
-	if fi, err := os.Stat(real); err != nil || !fi.Mode().IsRegular() {
-		return "", false
-	}
 	for _, d := range s.allowed() {
-		if rd, err := filepath.EvalSymlinks(d); err == nil && within(rd, real) {
-			return real, true
+		if rd, err := s.evalSymlinks(d); err == nil && within(rd, real) {
+			if fi, err := s.stat(real); err == nil && fi.Mode().IsRegular() {
+				return real, true
+			}
+			return "", false
 		}
 	}
 	return "", false
 }
 
+// ServeHTTP must be mounted directly (not behind http.ServeMux, which cleans the
+// decoded path and would mangle the escaped path in the URL).
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
