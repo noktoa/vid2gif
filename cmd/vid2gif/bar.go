@@ -175,14 +175,15 @@ func blocksOK(goos string, getenv func(string) string) bool {
 	return false
 }
 
-// isTerminal reports whether w is a character device (a console or tty).
+// isTerminal reports whether w is a console or tty: a character device and,
+// on Windows, a real console (NUL is a character device too).
 func isTerminal(w io.Writer) bool {
 	f, ok := w.(*os.File)
 	if !ok {
 		return false
 	}
 	st, err := f.Stat()
-	return err == nil && st.Mode()&os.ModeCharDevice != 0
+	return err == nil && st.Mode()&os.ModeCharDevice != 0 && isConsole(f)
 }
 
 // tail keeps the last max bytes written to it; safe for concurrent writes
