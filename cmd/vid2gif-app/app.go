@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -62,16 +63,17 @@ func (a *App) PickFolder() string {
 }
 
 // OpenFolder shows a folder, or a file selected in its folder, in Explorer.
-// Nothing is ever passed to Explorer as a program to run.
+// Only the output folder, made files and the helper-files folder qualify
+// (appcore.OpenablePath); nothing is ever passed to Explorer to run.
 func (a *App) OpenFolder(path string) {
-	fi, err := os.Stat(path)
+	p, isDir, ok := a.core.OpenablePath(path)
 	switch {
-	case err != nil:
-		a.core.Log.Printf("open folder: %v", err)
-	case fi.IsDir():
-		explorer(`"` + path + `"`)
+	case !ok:
+		a.core.Log.Printf("open folder: refused %q", path)
+	case isDir:
+		explorer(`"` + p + `"`)
 	default:
-		explorer(`/select,"` + path + `"`)
+		explorer(`/select,"` + p + `"`)
 	}
 }
 
@@ -90,7 +92,11 @@ func isDir(p string) bool {
 // explorer passes args verbatim: Go's quoting breaks /select, with spaces.
 // Windows paths cannot contain '"'.
 func explorer(args string) {
-	cmd := exec.Command("explorer.exe")
+	exe := "explorer.exe"
+	if root := os.Getenv("SystemRoot"); root != "" {
+		exe = filepath.Join(root, "explorer.exe")
+	}
+	cmd := exec.Command(exe)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: "explorer.exe " + args}
 	if err := cmd.Start(); err == nil {
 		go cmd.Wait() // explorer exits 1 even on success

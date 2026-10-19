@@ -139,6 +139,7 @@ type Core struct {
 	lookup  func(ctx context.Context, t Tools, link string) (string, []lookup.Video, error)
 	clip    func(t Tools) runner.ClipRunner
 	install func(onProgress func(tool string, done, total int64)) error
+	stat    func(string) (os.FileInfo, error)
 
 	base    context.Context // cancelled by Shutdown
 	stopAll context.CancelFunc
@@ -175,6 +176,7 @@ func New(emit Emit, log *debuglog.Log, settingsPath, binDir string, pins deps.Pi
 	c.clip = func(t Tools) runner.ClipRunner {
 		return clip.New(t.YtDlp, t.FFmpeg, t.Deno, "", io.Discard).WithLog(log)
 	}
+	c.stat = os.Stat
 	c.install = func(on func(string, int64, int64)) error {
 		return deps.InstallAllProgress(pins, binDir, logWriter{log}, on)
 	}
@@ -496,4 +498,41 @@ func cleanFormats(in []string) []string {
 		}
 	}
 	return out
+}
+
+// OpenablePath decides whether OpenFolder may show p: the output folder or
+// anything under it, a made file the preview server allows, or the
+// helper-files folder. Titles reach the page, so p is untrusted: UNC and
+// device paths (\host, \?\, \.\) and relative paths are refused before
+// anything touches the disk (a stat of a UNC path already connects to it).
+func (c *Core) OpenablePath(p string) (path string, isDir, ok bool) {
+	if p == "" || strings.HasPrefix(p, `\`) || strings.HasPrefix(p, `//`) {
+		return "", false, false
+	}
+	p = filepath.Clean(p)
+	if !filepath.IsAbs(p) || strings.HasPrefix(p, `\`) {
+		return "", false, false
+	}
+	_, made := c.Files.URL(p)
+	if !made && !within(c.Current().OutDir, p) && !within(c.binDir, p) {
+		return "", false, false
+	}
+	fi, err := c.stat(p)
+	if err != nil {
+		return "", false, false
+	}
+	return p, fi.IsDir(), true
+}
+
+// within reports whether p is dir or below it, lexically (filepath.Rel is
+// case-insensitive on Windows).
+func within(dir, p string) bool {
+	if dir == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(dir), p)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

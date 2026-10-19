@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -377,5 +378,56 @@ func TestValidateReturnsSeconds(t *testing.T) {
 	}
 	if got := c.Validate("", "", 0); got.Message == "" {
 		t.Error("empty start accepted")
+	}
+}
+
+func TestOpenablePath(t *testing.T) {
+	c, _ := newTestCore(t)
+	out := c.Current().OutDir
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(out, "a.gif")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	made := filepath.Join(t.TempDir(), "old.gif") // an earlier output folder
+	if err := os.WriteFile(made, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.Files.Allow(filepath.Dir(made))
+	stats := 0
+	c.stat = func(p string) (os.FileInfo, error) { stats++; return os.Stat(p) }
+
+	for _, p := range []string{``, `rel\a.gif`, `rel/a.gif`, `\host\share\a.gif`, `//host/share/a.gif`, `\?\C:\x\a.gif`, `\.\pipe\x`} {
+		if _, _, ok := c.OpenablePath(p); ok {
+			t.Errorf("OpenablePath(%q) accepted", p)
+		}
+	}
+	if stats != 0 {
+		t.Errorf("stat called %d times for rejected UNC/relative paths", stats)
+	}
+	if _, _, ok := c.OpenablePath(filepath.Join(t.TempDir(), "x")); ok {
+		t.Error("path outside OutDir accepted")
+	}
+	if _, isDir, ok := c.OpenablePath(out); !ok || !isDir {
+		t.Errorf("OutDir: ok %v isDir %v", ok, isDir)
+	}
+	if p, isDir, ok := c.OpenablePath(file); !ok || isDir || p != file {
+		t.Errorf("file under OutDir: %q ok %v isDir %v", p, ok, isDir)
+	}
+	if _, _, ok := c.OpenablePath(made); !ok {
+		t.Error("made file in an allowed folder rejected")
+	}
+	if err := os.MkdirAll(c.binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, isDir, ok := c.OpenablePath(c.binDir); !ok || !isDir {
+		t.Error("helper-files folder not openable")
+	}
+	if runtime.GOOS == "windows" {
+		if _, _, ok := c.OpenablePath(strings.ToUpper(file)); !ok {
+			t.Error("case difference rejected on Windows")
+		}
 	}
 }
