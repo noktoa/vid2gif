@@ -24,7 +24,7 @@ function Entries {
 function Check($ok, $what) { if (-not $ok) { throw "FAIL: $what" }; Write-Host "ok: $what" }
 function Msi($argList, $log) {
     $p = Start-Process msiexec.exe -ArgumentList "$argList /qn /l*v `"$log`"" -Wait -PassThru
-    if ($p.ExitCode -ne 0) { throw "FAIL: msiexec $argList exited $($p.ExitCode); see $log" }
+    if ($p.ExitCode -notin 0, 3010) { throw "FAIL: msiexec $argList exited $($p.ExitCode); see $log" }
 }
 function Build($v, $appExe) {
     $out = Join-Path $dist "vid2gif-$v.msi"
@@ -57,7 +57,6 @@ $parent = Join-Path $t 'a b'
 $dir = Join-Path $parent 'vid2gif'
 $backup = $null
 $dataSet = $false
-$installed = $null
 try {
     New-Item -ItemType Directory $parent, "$t\clips", "$t\logs" | Out-Null
     Set-Content "$parent\other.txt" 'sibling'
@@ -74,7 +73,6 @@ try {
     Set-Content "$dataDir\settings.json" "{`"marker`":`"$marker`"}"
 
     # 1. per-user install of 0.0.1 into a folder with a space
-    $installed = $msi1
     Msi "/i `"$msi1`" MSIINSTALLPERUSER=1 ALLUSERS=`"`" APPLICATIONFOLDER=`"$dir`"" "$t\logs\install1.log"
     Check (Test-Path "$dir\vid2gif-app.exe") 'exe installed'
     Check (Test-Path $menuLnk) 'Start Menu shortcut'
@@ -84,7 +82,6 @@ try {
 
     # 2. upgrade to 0.0.2 without naming the folder: it must stay where it was
     Msi "/i `"$msi2`" MSIINSTALLPERUSER=1 ALLUSERS=`"`"" "$t\logs\install2.log"
-    $installed = $msi2
     $e = @(Entries)
     Check ($e.Count -eq 1 -and $e[0].Version -eq '0.0.2') 'one uninstall entry after upgrade, 0.0.2'
     Check ((Test-Path "$dir\vid2gif-app.exe") -and (Get-FileHash "$dir\vid2gif-app.exe").Hash -eq (Get-FileHash $exe2).Hash) 'new exe in the same folder'
@@ -95,9 +92,9 @@ try {
     # keep the tools for step 4, so they are not downloaded twice
     Copy-Item "$dir\bin" "$t\bincache" -Recurse
 
-    # 3. uninstall
+    # 3. uninstall; the leftovers of an interrupted tool download must go too
+    Set-Content "$dir\bin\ffmpeg.exe.new", "$dir\bin\.deno.download" 'partial'
     Msi "/x `"$msi2`"" "$t\logs\uninstall1.log"
-    $installed = $null
     Check (-not (Test-Path "$dir\vid2gif-app.exe")) 'exe removed'
     Check (-not (Test-Path $menuLnk)) 'shortcut removed'
     Check (-not (Test-Path "$dir\bin")) 'bin removed'
@@ -107,22 +104,34 @@ try {
     Check (Test-Path "$parent\other.txt") 'sibling file kept'
     Check (Test-Path "$t\clips\a.gif") 'clips kept'
 
-    # 4. install into a folder the user already had, with a file in it
+    # 4. install into a folder the user already had, with its own bin folder
     $own = Join-Path $t 'my apps'
-    New-Item -ItemType Directory $own | Out-Null
-    Set-Content "$own\keep.txt" 'mine'
-    Copy-Item "$t\bincache" "$own\bin" -Recurse
-    $installed = $msi2
+    New-Item -ItemType Directory "$own\bin" | Out-Null
+    Set-Content "$own\keep.txt", "$own\bin\mine.txt" 'mine'
+    Copy-Item "$t\bincache\*" "$own\bin"  # same tools, so nothing is downloaded again
     Msi "/i `"$msi2`" MSIINSTALLPERUSER=1 ALLUSERS=`"`" APPLICATIONFOLDER=`"$own`"" "$t\logs\install3.log"
     Check (Test-Path "$own\vid2gif-app.exe") 'exe installed into existing folder'
     Msi "/x `"$msi2`"" "$t\logs\uninstall2.log"
-    $installed = $null
-    Check ((Test-Path "$own\keep.txt") -and -not (Test-Path "$own\vid2gif-app.exe") -and -not (Test-Path "$own\bin")) 'existing folder and its file kept, app and bin removed'
+    Check ((Test-Path "$own\keep.txt") -and -not (Test-Path "$own\vid2gif-app.exe")) 'existing folder and its file kept, exe removed'
+    Check ((Test-Path "$own\bin\mine.txt") -and @(Get-ChildItem "$own\bin" -Force).Count -eq 1) 'existing bin keeps the user''s file, tools removed'
     Write-Host 'PASS'
 } finally {
-    if ($installed) { Start-Process msiexec.exe -ArgumentList "/x `"$installed`" /qn" -Wait }
+    # nothing was installed before the test (checked above), so any vid2gif
+    # product now is the test's own
+    foreach ($code in @($msiApi.RelatedProducts("{$upgradeCode}"))) {
+        $p = Start-Process msiexec.exe -ArgumentList "/x $code /qn" -Wait -PassThru
+        if ($p.ExitCode -notin 0, 3010) { Write-Host "!!! could not uninstall the test install $code (exit $($p.ExitCode)); remove vid2gif in Installed apps" -ForegroundColor Red }
+    }
     # only the fake data folder made above is deleted here, never the real one
-    if ($dataSet -and (Test-Path $dataDir)) { Remove-Item $dataDir -Recurse -Force }
-    if ($backup) { Move-Item $backup $dataDir; Write-Host "restored $dataDir" }
+    if ($dataSet -and (Test-Path $dataDir)) {
+        try { Remove-Item $dataDir -Recurse -Force } catch { Write-Host "could not delete the test's $dataDir`: $_" -ForegroundColor Red }
+    }
+    if ($backup) {
+        if (-not (Test-Path $dataDir)) { Move-Item $backup $dataDir; Write-Host "restored $dataDir" }
+        if (Test-Path $backup) {
+            Write-Host "!!! Your real $dataDir is saved at $backup. Delete $dataDir and rename the saved folder back by hand." -ForegroundColor Red
+            throw "FAIL: could not restore $dataDir from $backup"
+        }
+    }
     Remove-Item $t -Recurse -Force -ErrorAction SilentlyContinue
 }

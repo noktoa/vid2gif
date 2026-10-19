@@ -5,7 +5,8 @@
   Just me (default, no admin) or all users, chosen in WixUI_Advanced. The
   helper tools are not in the package: InstallTools runs the app's
   install-tools step to download them into <folder>\bin.
-  Uninstall removes <folder>\bin and %LOCALAPPDATA%\vid2gif (not on upgrade);
+  Uninstall removes the tool files in <folder>\bin (bin only if then empty)
+  and %LOCALAPPDATA%\vid2gif (neither on upgrade);
   the install folder itself only goes if it is empty.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
@@ -21,34 +22,40 @@
     <Property Id="ApplicationFolderName" Value="vid2gif" />
     <Property Id="WixAppFolder" Value="WixPerUserFolder" />
 
-    <!-- Remember the folder, so an upgrade or uninstall finds it before
-         CostFinalize (RemoveFolderEx needs a plain property by then). -->
-    <Property Id="VID2GIF_FOLDER" Secure="yes">
-      <!-- HKMU is HKCU or HKLM; search can't use it. Both found only if
-           installed per-user and for all users at once (not supported). -->
+    <!-- Remember the folder per scope (HKMU: HKCU just me, HKLM all users),
+         so an upgrade or uninstall finds it before CostInitialize, when the
+         removal rows below are resolved. RegistrySearch can't use HKMU. -->
+    <Property Id="VID2GIF_USER_FOLDER" Secure="yes">
       <RegistrySearch Root="HKCU" Key="Software\vid2gif" Name="InstallFolder" Type="raw" />
+    </Property>
+    <Property Id="VID2GIF_MACHINE_FOLDER" Secure="yes">
       <RegistrySearch Root="HKLM" Key="Software\vid2gif" Name="InstallFolder" Type="raw" Bitness="always64" />
     </Property>
 
     <!-- WixUI_Advanced's defaults are LocalAppData\Apps and the 32-bit
          Program Files; use Programs (as Windows does) and the 64-bit one, or
-         the folder of the version being upgraded. -->
+         the folder that scope's installed version is in. -->
     <SetProperty Id="WixPerUserFolder" Action="Vid2gifPerUserFolder" Value="[LocalAppDataFolder]Programs\vid2gif\"
-                 Before="WixSetPerUserFolder" Sequence="both" Condition="NOT VID2GIF_FOLDER" />
+                 Before="WixSetPerUserFolder" Sequence="both" Condition="NOT VID2GIF_USER_FOLDER" />
+    <SetProperty Id="WixPerUserFolder" Action="Vid2gifKeptUserFolder" Value="[VID2GIF_USER_FOLDER]"
+                 Before="WixSetPerUserFolder" Sequence="both" Condition="VID2GIF_USER_FOLDER" />
     <SetProperty Id="WixPerMachineFolder" Action="Vid2gifPerMachineFolder" Value="[ProgramFiles64Folder]vid2gif\"
-                 Before="WixSetPerUserFolder" Sequence="both" Condition="NOT VID2GIF_FOLDER" />
-    <SetProperty Id="WixPerUserFolder" Action="Vid2gifKeptUserFolder" Value="[VID2GIF_FOLDER]"
-                 Before="WixSetPerUserFolder" Sequence="both" Condition="VID2GIF_FOLDER" />
-    <SetProperty Id="WixPerMachineFolder" Action="Vid2gifKeptMachineFolder" Value="[VID2GIF_FOLDER]"
-                 Before="WixSetPerUserFolder" Sequence="both" Condition="VID2GIF_FOLDER" />
+                 Before="WixSetPerUserFolder" Sequence="both" Condition="NOT VID2GIF_MACHINE_FOLDER" />
+    <SetProperty Id="WixPerMachineFolder" Action="Vid2gifKeptMachineFolder" Value="[VID2GIF_MACHINE_FOLDER]"
+                 Before="WixSetPerUserFolder" Sequence="both" Condition="VID2GIF_MACHINE_FOLDER" />
 
-    <!-- Only a real uninstall clears bin and the data folder; the old
-         version's removal during an upgrade keeps tools and settings. -->
-    <SetProperty Id="VID2GIF_REMOVE_BIN" Value="[VID2GIF_FOLDER]bin" Before="Wix4RemoveFoldersEx_X64" Sequence="execute"
-                 Condition="VID2GIF_FOLDER AND REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    <!-- Only a real uninstall removes the tools and the data folder; the old
+         version's removal during an upgrade keeps them. By then Windows
+         Installer has resolved the scope: ALLUSERS=1 for all users, empty for
+         just me, so bin is always the one in this installation's folder. -->
+    <SetProperty Id="VID2GIF_REMOVE_BIN" Action="Vid2gifRemoveMachineBin" Value="[VID2GIF_MACHINE_FOLDER]bin\"
+                 Before="Wix4RemoveFoldersEx_X64" Sequence="execute"
+                 Condition="VID2GIF_MACHINE_FOLDER AND ALLUSERS=1 AND REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    <SetProperty Id="VID2GIF_REMOVE_BIN" Action="Vid2gifRemoveUserBin" Value="[VID2GIF_USER_FOLDER]bin\"
+                 Before="Wix4RemoveFoldersEx_X64" Sequence="execute"
+                 Condition="VID2GIF_USER_FOLDER AND NOT ALLUSERS=1 AND REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     <SetProperty Id="VID2GIF_REMOVE_DATA" Value="[LocalAppDataFolder]vid2gif" Before="Wix4RemoveFoldersEx_X64" Sequence="execute"
                  Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
-
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="APPLICATIONFOLDER" Name="vid2gif" />
     </StandardDirectory>
@@ -64,7 +71,19 @@
       <Component Id="Shortcut" Directory="ProgramMenuFolder">
         <Shortcut Name="vid2gif" Target="[#AppExe]" WorkingDirectory="APPLICATIONFOLDER" />
         <RegistryValue Root="HKMU" Key="Software\vid2gif" Name="InstallFolder" Type="string" Value="[APPLICATIONFOLDER]" KeyPath="yes" />
-        <util:RemoveFolderEx On="uninstall" Property="VID2GIF_REMOVE_BIN" />
+        <!-- bin may be a folder the user already had: remove only the names
+             deps.Install writes (tool, .new stage, .download archive), then
+             bin itself if that left it empty. Unset property = no-op. -->
+        <RemoveFile Id="RmYtDlp" Property="VID2GIF_REMOVE_BIN" Name="yt-dlp.exe" On="uninstall" />
+        <RemoveFile Id="RmYtDlpNew" Property="VID2GIF_REMOVE_BIN" Name="yt-dlp.exe.new" On="uninstall" />
+        <RemoveFile Id="RmYtDlpDl" Property="VID2GIF_REMOVE_BIN" Name=".yt-dlp.download" On="uninstall" />
+        <RemoveFile Id="RmFfmpeg" Property="VID2GIF_REMOVE_BIN" Name="ffmpeg.exe" On="uninstall" />
+        <RemoveFile Id="RmFfmpegNew" Property="VID2GIF_REMOVE_BIN" Name="ffmpeg.exe.new" On="uninstall" />
+        <RemoveFile Id="RmFfmpegDl" Property="VID2GIF_REMOVE_BIN" Name=".ffmpeg.download" On="uninstall" />
+        <RemoveFile Id="RmDeno" Property="VID2GIF_REMOVE_BIN" Name="deno.exe" On="uninstall" />
+        <RemoveFile Id="RmDenoNew" Property="VID2GIF_REMOVE_BIN" Name="deno.exe.new" On="uninstall" />
+        <RemoveFile Id="RmDenoDl" Property="VID2GIF_REMOVE_BIN" Name=".deno.download" On="uninstall" />
+        <RemoveFolder Id="RmBin" Property="VID2GIF_REMOVE_BIN" On="uninstall" />
         <util:RemoveFolderEx On="uninstall" Property="VID2GIF_REMOVE_DATA" />
       </Component>
     </Feature>
@@ -73,6 +92,9 @@
          written. Failure (offline) is ignored: the app's first launch retries. -->
     <CustomAction Id="InstallTools" FileRef="AppExe" ExeCommand="--install-tools"
                   Execute="deferred" Impersonate="no" Return="ignore" />
+    <UI>
+      <ProgressText Action="InstallTools" Message="Downloading helper tools (about 250 MB)…" />
+    </UI>
     <InstallExecuteSequence>
       <Custom Action="InstallTools" After="InstallFiles" Condition="NOT REMOVE~=&quot;ALL&quot;" />
     </InstallExecuteSequence>
