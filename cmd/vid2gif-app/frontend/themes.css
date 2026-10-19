@@ -1,0 +1,5 @@
+/* Colour themes: data-theme on <html>. Ink and the accents in styles.css
+   never change per theme. contrast.test.js parses this file. */
+:root, [data-theme="grey"] { --ground: #E4E8ED; --slip: #F8FAFC; --line: #CBD1D9; --tb: #DCE1E8; }
+[data-theme="mint"] { --ground: #CDEBE4; --slip: #F7FCFB; --line: #9BC7BD; --tb: #B8DDD5; }
+[data-theme="lilac"] { --ground: #E4DEF6; --slip: #FBF9FF; --line: #BDB3DB; --tb: #D4CCEB; }
