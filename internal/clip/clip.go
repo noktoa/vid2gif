@@ -102,13 +102,13 @@ func (p Pipeline) Run(ctx context.Context, o Opts) error {
 // ytdlpTitleArgs asks yt-dlp for the video title only (no download).
 // --ignore-config keeps a user's own yt-dlp config from changing a pinned run.
 func ytdlpTitleArgs(url, deno string) []string {
-	return append(append([]string{"--ignore-config"}, jsRuntimeArgs(deno)...), "--print", "title", "--no-playlist", "--", url)
+	return append(append([]string{"--ignore-config"}, JSRuntimeArgs(deno)...), "--print", "title", "--no-playlist", "--", url)
 }
 
-// jsRuntimeArgs restricts yt-dlp to the pinned deno, which YouTube extraction
+// JSRuntimeArgs restricts yt-dlp to the pinned deno, which YouTube extraction
 // needs. --no-js-runtimes must come first because it clears earlier entries.
 // With no deno (--no-pin and none installed) yt-dlp keeps its own defaults.
-func jsRuntimeArgs(deno string) []string {
+func JSRuntimeArgs(deno string) []string {
 	if deno == "" {
 		return nil
 	}
@@ -127,7 +127,7 @@ func ytdlpDownloadArgs(o Opts, ffmpegPath, deno, tmpDir string, wantAudio bool) 
 	if o.End > 0 {
 		end = naming.FmtSeconds(o.End)
 	}
-	args := append([]string{"--ignore-config"}, jsRuntimeArgs(deno)...)
+	args := append([]string{"--ignore-config"}, JSRuntimeArgs(deno)...)
 	return append(args,
 		"--no-playlist",
 		"-f", format,
