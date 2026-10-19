@@ -226,6 +226,7 @@ button.stamp:hover { background: var(--paper); }
   position: absolute; right: 8px; bottom: 8px; color: #FFFFFF; background: rgba(30, 27, 36, .82);
   padding: 2px 8px; border-radius: 99px; font-weight: 700; font-size: 12px; font-variant-numeric: tabular-nums;
 }
+.inline-preview.no-player { grid-template-columns: minmax(0, 1fr); }
 .info { display: grid; gap: 10px; align-content: start; min-width: 0; }
 .fmt-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .facts { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 13px; }

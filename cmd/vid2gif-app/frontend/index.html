@@ -15,11 +15,7 @@
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
     <!-- gear: Feather Icons "settings" (MIT) -->
     <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
-    <!-- PLACEHOLDER sample thumbnails (made up), used only by the sample slips below -->
-    <symbol id="scene-cake" viewBox="0 0 160 100"><rect width="160" height="100" fill="#B9C2CC"/><rect x="40" y="52" width="80" height="36" fill="#F2F4F6"/><rect x="40" y="52" width="80" height="10" fill="#5E6672"/><rect x="77" y="30" width="6" height="22" fill="#8C95A1"/><circle cx="80" cy="26" r="5" fill="#3F4652"/></symbol>
-    <symbol id="scene-toast" viewBox="0 0 160 100"><rect width="160" height="100" fill="#A9B4BF"/><rect y="70" width="160" height="30" fill="#3A3F48"/><rect x="62" y="34" width="14" height="40" fill="#F2F4F6"/><rect x="84" y="34" width="14" height="40" fill="#8C95A1"/><circle cx="69" cy="26" r="9" fill="#E3E7EB"/><circle cx="91" cy="26" r="9" fill="#E3E7EB"/></symbol>
-    <symbol id="scene-skate" viewBox="0 0 160 100"><rect width="160" height="100" fill="#8C95A1"/><polygon points="0,100 70,52 160,100" fill="#3A3F48"/><rect x="58" y="40" width="46" height="7" rx="3" fill="#5E6672" transform="rotate(-18 80 44)"/><circle cx="68" cy="56" r="4" fill="#F2F4F6"/><circle cx="96" cy="48" r="4" fill="#F2F4F6"/></symbol>
-    <symbol id="scene-fuji" viewBox="0 0 160 100"><rect width="160" height="100" fill="#C3CAD2"/><circle cx="116" cy="34" r="16" fill="#8C95A1"/><polygon points="20,100 80,34 140,100" fill="#4A515C"/><polygon points="68,48 80,34 92,48 84,46 80,52 76,46" fill="#F2F4F6"/></symbol>
+    <!-- placeholder art for a slip whose video can't be found -->
     <symbol id="scene-none" viewBox="0 0 160 100"><rect width="160" height="100" fill="#CBD1D9"/><path d="M60 50 H100 M80 30 V70" stroke="#4A4655" stroke-width="6" stroke-linecap="round" transform="rotate(45 80 50)"/></symbol>
   </defs>
 </svg>
@@ -43,7 +39,7 @@
         <div class="chips" id="formats">
           <button class="chip" type="button" data-format="gif" aria-pressed="true">GIF</button>
           <button class="chip" type="button" data-format="webp" aria-pressed="false">WebP</button>
-          <button class="chip" type="button" data-format="mp4" aria-pressed="true">MP4</button>
+          <button class="chip" type="button" data-format="mp4" aria-pressed="false">MP4</button>
           <button class="chip" type="button" data-format="mov" aria-pressed="false">MOV</button>
         </div>
       </div>
@@ -56,142 +52,27 @@
       </div>
       <div class="group" role="group" aria-labelledby="lbl-where"><span class="lbl" id="lbl-where">Save to</span>
         <div class="where">
-          <div class="path" id="outdir" title="C:\Users\you\Videos\Clips">C:\Users\you\Videos\Clips</div>
+          <div class="path" id="outdir"></div>
           <button class="btn" type="button" id="change-folder">Change</button>
         </div>
       </div>
     </div>
 
-    <button class="make" type="button" id="make">Make 3 clips</button>
+    <p class="note alert" id="notice" role="status" hidden></p>
+
+    <button class="make" type="button" id="make" disabled>Make clips</button>
   </aside>
 
   <main class="sheet" id="sheet">
     <div class="top">
-      <h2 class="shelf-title" id="source">Family videos 2025, plus pasted links</h2>
-      <span class="count"><span class="sticker" id="count">9</span> videos</span>
-      <button class="btn icon-only" type="button" popovertarget="settings" aria-label="Settings"><svg class="i" aria-hidden="true"><use href="#i-gear"/></svg></button>
+      <h2 class="shelf-title" id="source">Your shelf</h2>
+      <span class="count"><span class="sticker" id="count">0</span> <span id="count-word">videos</span></span>
+      <button class="btn icon-only" type="button" id="gear" popovertarget="settings" aria-label="Settings"><svg class="i" aria-hidden="true"><use href="#i-gear"/></svg></button>
     </div>
 
-    <p class="empty" id="empty" hidden>Nothing on the shelf yet. Paste or drop a video link to start.</p>
+    <p class="empty" id="empty">Nothing on the shelf yet. Paste or drop a video link to start.</p>
 
-    <!-- PLACEHOLDER: sample slips in every state, for layout inspection only.
-         Task 10 replaces this list with slips rendered from state. -->
-    <ol class="shelf" id="shelf">
-
-      <li class="slip eye open">
-        <div class="stub"><div class="thumb"><svg aria-hidden="true"><use href="#scene-cake"/></svg></div><div class="len">4:32</div></div>
-        <div class="main">
-          <div><p class="title">Grandma’s 90th birthday: the cake moment</p><p class="src">Playlist item 1</p></div>
-          <div class="row2">
-            <label class="time">Start<input value="1:12" inputmode="decimal"></label><span class="arrow">to</span>
-            <label class="time">Stop<input value="1:19" inputmode="decimal" placeholder="end"></label>
-            <div class="state"><button class="stamp done" type="button" aria-expanded="true" aria-controls="preview-s1" aria-label="Done. Close the preview">Done</button><p class="files">GIF + MP4</p></div>
-          </div>
-        </div>
-        <div class="inline-preview" id="preview-s1" role="region" aria-label="Preview">
-          <div class="player"><svg viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#scene-cake"/></svg><span class="badge">GIF</span><span class="loop">0:07 loop</span></div>
-          <div class="info">
-            <div class="fmt-tabs" role="group" aria-label="Format"><button class="chip" type="button" aria-pressed="true">GIF</button><button class="chip" type="button" aria-pressed="false">MP4</button></div>
-            <dl class="facts"><dt>Length</dt><dd>7 seconds</dd><dt>Size</dt><dd>2.4 MB</dd><dt>Width</dt><dd>480 px</dd></dl>
-            <div class="actions"><button class="btn" type="button"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg>Open folder</button><button class="btn quiet" type="button">Close</button></div>
-          </div>
-        </div>
-      </li>
-
-      <li class="slip">
-        <div class="stub"><div class="thumb"><svg aria-hidden="true"><use href="#scene-toast"/></svg></div><div class="len">12:08</div></div>
-        <div class="main">
-          <div><p class="title">Best man toast, Sam and Jo’s wedding</p><p class="src">Playlist item 2</p></div>
-          <div class="row2">
-            <label class="time">Start<input value="3:40" inputmode="decimal"></label><span class="arrow">to</span>
-            <label class="time">Stop<input value="3:48" inputmode="decimal" placeholder="end"></label>
-            <div class="state">
-              <div class="progress" role="progressbar" aria-label="Making the clip" aria-valuetext="Getting the clip 63%" aria-valuemin="0" aria-valuemax="100" aria-valuenow="41" style="--pct:.41">
-                <span class="stage">Getting the clip 63%</span><div class="track"><div class="fill"></div></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </li>
-
-      <li class="slip">
-        <div class="stub"><div class="thumb"><svg aria-hidden="true"><use href="#scene-skate"/></svg></div><div class="len">8:15</div></div>
-        <div class="main">
-          <div><p class="title">Skateboard tricks compilation 12</p><p class="src">Playlist item 3</p></div>
-          <div class="row2">
-            <label class="time">Start<input value="0:54" inputmode="decimal"></label><span class="arrow">to</span>
-            <label class="time">Stop<input value="1:02" inputmode="decimal" placeholder="end"></label>
-            <div class="state"><span class="stamp wait">Next up</span></div>
-          </div>
-        </div>
-      </li>
-
-      <li class="slip">
-        <div class="stub"><div class="thumb"><svg aria-hidden="true"><use href="#scene-fuji"/></svg></div><div class="len">2:47</div></div>
-        <div class="main">
-          <div><p class="title">Sunrise timelapse over Mt. Fuji</p><p class="src">Playlist item 4</p></div>
-          <div class="row2">
-            <label class="time need">Start<input placeholder="0:00" inputmode="decimal" aria-describedby="need-4"></label><span class="arrow">to</span>
-            <label class="time">Stop<input value="0:20" inputmode="decimal" placeholder="end"></label>
-            <div class="state"><p class="note" id="need-4">Add a start time to include this one.</p></div>
-          </div>
-        </div>
-      </li>
-
-      <li class="slip">
-        <div class="stub"><div class="thumb"><svg aria-hidden="true"><use href="#scene-cake"/></svg></div><div class="len">1:05:12</div></div>
-        <div class="main">
-          <div><p class="title">Holiday dinner, the whole table singing</p><p class="src">Playlist item 5</p></div>
-          <div class="row2">
-            <label class="time">Start<input value="1:02:10" inputmode="decimal"></label><span class="arrow">to</span>
-            <label class="time">Stop<input value="" inputmode="decimal" placeholder="end"></label>
-            <div class="state"><span class="stamp done">Returned</span><p class="note">Already in your folder</p></div>
-          </div>
-        </div>
-      </li>
-
-      <li class="slip">
-        <div class="stub"><div class="thumb"><svg aria-hidden="true"><use href="#scene-toast"/></svg></div><div class="len">0:58</div></div>
-        <div class="main">
-          <div><p class="title">First steps in the garden</p><p class="src">Playlist item 6</p></div>
-          <div class="row2">
-            <label class="time">Start<input value="12.5" inputmode="decimal"></label><span class="arrow">to</span>
-            <label class="time">Stop<input value="19" inputmode="decimal" placeholder="end"></label>
-            <div class="state"><button class="stamp done" type="button" aria-expanded="false" aria-label="Done. Open the preview">Done</button><p class="files">GIF</p><p class="note alert">The MP4 couldn’t be made.</p></div>
-          </div>
-        </div>
-      </li>
-
-      <li class="slip">
-        <div class="stub"><div class="thumb"><svg aria-hidden="true"><use href="#scene-skate"/></svg></div><div class="len">6:30</div></div>
-        <div class="main">
-          <div><p class="title">Ready and waiting: a plain slip with times set</p><p class="src">Pasted link</p></div>
-          <div class="row2">
-            <label class="time">Start<input value="2:00" inputmode="decimal"></label><span class="arrow">to</span>
-            <label class="time">Stop<input value="2:06.5" inputmode="decimal" placeholder="end"></label>
-          </div>
-        </div>
-      </li>
-
-      <li class="slip">
-        <div class="stub"><div class="thumb"><svg aria-hidden="true"><use href="#scene-none"/></svg></div><div class="len">—</div></div>
-        <div class="main">
-          <div><p class="title">Link you pasted</p><p class="src">youtube.com/watch?v=dQw4w9WgXcQ</p></div>
-          <div class="row2">
-            <div class="state lead"><p class="note alert">Couldn’t get this video. It may be private or removed.</p></div>
-            <div class="state"><span class="stamp bad">Not found</span><button class="btn quiet" type="button">Remove</button></div>
-          </div>
-        </div>
-      </li>
-
-      <li class="slip">
-        <div class="stub"><div class="thumb"></div><div class="len">—</div></div>
-        <div class="main">
-          <div><p class="title">Looking this one up…</p><p class="src">youtube.com/playlist?list=PL0123456789</p></div>
-          <div class="row2"><div class="state lead"><span class="stamp wait">Looking up</span></div></div>
-        </div>
-      </li>
-    </ol>
+    <ol class="shelf" id="shelf" aria-labelledby="source"></ol>
   </main>
 </div>
 
@@ -213,7 +94,7 @@
 
   <div class="group" role="group" aria-labelledby="lbl-bin"><span class="lbl" id="lbl-bin">Helper files</span>
     <div class="where">
-      <div class="path" id="bindir" title="C:\Users\you\AppData\Local\Programs\vid2gif\bin">C:\Users\you\AppData\Local\Programs\vid2gif\bin</div>
+      <div class="path" id="bindir"></div>
       <button class="btn" type="button" id="open-bin">Open</button>
     </div>
   </div>
@@ -228,12 +109,12 @@
 <section class="setup-screen" id="setup" aria-labelledby="setup-h" hidden>
   <div class="setup-card">
     <p class="logo">vid2gif</p>
-    <h1 id="setup-h">Getting ready. This only happens once.</h1>
-    <p>The app is downloading its helper files, about 250 MB. Keep this window open.</p>
-    <div class="progress" id="setup-progress" role="progressbar" aria-label="Getting ready" aria-valuetext="Downloading 42%" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42" style="--pct:.42">
-      <span class="stage">Downloading 42%</span><div class="track"><div class="fill"></div></div>
+    <h1 id="setup-h" tabindex="-1">Getting ready. This only happens once.</h1>
+    <p id="setup-text">The app is downloading its helper files, about 250 MB. Keep this window open.</p>
+    <div class="progress pulse" id="setup-progress" role="progressbar" aria-label="Getting ready" aria-valuetext="Starting the download…" aria-valuemin="0" aria-valuemax="100">
+      <span class="stage">Starting the download…</span><div class="track"><div class="fill"></div></div>
     </div>
-    <p class="note alert" id="setup-error" role="alert" hidden>Couldn't download the helper files. Check your connection and try again.</p>
+    <p class="note alert" id="setup-error" role="alert" hidden></p>
     <button class="make" type="button" id="setup-retry" hidden>Try again</button>
   </div>
 </section>
@@ -243,5 +124,6 @@
   // later scripts see window.go. In the app window.go exists and nothing is fetched.
   if (!window.go) document.write('<script src="dev-stub.js"><\/script>');
 </script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
