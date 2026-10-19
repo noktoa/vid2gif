@@ -22,11 +22,33 @@ That writes `gifs/<video title>_2-5.gif`. Keep `deps.json` in the same folder as
 
 If you'd rather not use a terminal, there is a Windows app: paste a link, pick the moment you want, and it makes the GIF (or WebP, MP4 or MOV) for you. It uses the same engine as the command line, so the files come out the same.
 
-- **Download:** `vid2gif-app.exe` is on the [releases page](https://github.com/noktoa/vid2gif/releases). It is a single file that doesn't need anything installed first.
-- **First launch:** the helper tools (yt-dlp, ffmpeg and deno, about 250 MB) are downloaded once, on install or on first launch. The app shows a progress screen while it does, and it only needs to happen once.
+- **Download:** the [releases page](https://github.com/noktoa/vid2gif/releases) has an installer, `vid2gif-<version>.msi`, and the plain `vid2gif-app.exe`, a single file you can run from any folder. On current Windows 10 and 11 neither needs anything installed first (the window uses WebView2, which comes with Windows).
+- **Helper tools:** yt-dlp, ffmpeg and deno (about 250 MB) are downloaded during install. If that step couldn't run (for example you were offline), or you use the plain .exe, the app downloads them on first launch and shows a progress screen while it does. It only happens once.
 - **Where things live:** your settings, logs and the app's web view data are in `%LOCALAPPDATA%\vid2gif`. The helper tools are in a `bin` folder next to the app. (Set `VID2GIF_BIN` to put them somewhere else, as with the command line.)
-- **If something goes wrong:** turn on Settings → Troubleshooting. The app then writes a log file for each run to `%LOCALAPPDATA%\vid2gif\logs`, which you can send along with a bug report.
+- **If something goes wrong:** turn on Settings → Troubleshooting. The app then writes one log file per run to `%LOCALAPPDATA%\vid2gif\logs` and keeps the newest 5. The log includes the video links you used, so look through it before you send it with a bug report.
 - **Windows only.** The Linux build is the command line.
+
+### Installing with the MSI
+
+1. Run `vid2gif-<version>.msi`. The installer isn't code-signed, so Windows SmartScreen may say it "protected your PC". Click **More info**, then **Run anyway**. (Signing costs money every year, and this app is shared among friends.)
+2. Choose **Install just for you** (the default, no administrator rights needed) or **Install for all users of this machine** (Windows asks for an administrator).
+3. Keep the suggested folder or pick your own. Just for you installs to `%LOCALAPPDATA%\Programs\vid2gif`, for all users to `C:\Program Files\vid2gif`.
+
+The installer adds a Start Menu shortcut and an entry in Settings → Apps → Installed apps, then downloads the helper tools into `<install folder>\bin`. An all-users install has one shared copy of the tools that only administrators can change. If a standard user is ever told the helper files couldn't be set up, an administrator can run **Repair** on vid2gif in Installed apps. Installing a newer MSI upgrades in place and keeps the tools and your settings.
+
+**Uninstalling** (from Installed apps) removes the program, the shortcut, the `bin` folder with the tools, and `%LOCALAPPDATA%\vid2gif` (settings, logs, web view data). The install folder is removed only when nothing else is left in it, so a folder you already had keeps your own files. It never removes the clips you made or your output folder. If a clip was interrupted by a crash, a `.vid2gif-tmp-*` folder may be left in the output folder; it is safe to delete.
+
+For an all-users install, uninstalling clears `%LOCALAPPDATA%\vid2gif` only for the user who runs the uninstall. Other people who used the app on that PC can delete their own `%LOCALAPPDATA%\vid2gif` folder.
+
+To build the MSI you need the [WiX Toolset](https://wixtoolset.org) 6 and its UI and Util extensions:
+
+```powershell
+dotnet tool install --global wix --version 6.0.2
+wix extension add --global WixToolset.UI.wixext/6.0.2 WixToolset.Util.wixext/6.0.2
+wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=0.1.0 -d AppExe=dist\vid2gif-app.exe -o dist\vid2gif-0.1.0.msi
+```
+
+`installer\test.ps1` builds two versions, then installs (just for you, into a temp folder), upgrades and uninstalls, and checks what is left. It refuses to run if vid2gif is already installed, and it moves your `%LOCALAPPDATA%\vid2gif` aside while it runs and puts it back afterwards. It downloads the helper tools once.
 
 To build it from source you need Go, and nothing else:
 
@@ -40,7 +62,7 @@ The page inside the app is plain JavaScript in `cmd/vid2gif-app/frontend/`. Its 
 node --test "cmd/vid2gif-app/frontend/*.test.js"
 ```
 
-`vid2gif-app.exe --install-tools` downloads the helper tools without opening a window (an installer can use it). It writes a log to `%TEMP%\vid2gif-install.log`.
+`vid2gif-app.exe --install-tools` downloads the helper tools without opening a window (the MSI runs it). It writes a log to `%TEMP%\vid2gif-install.log`.
 
 ## Examples
 
@@ -147,7 +169,7 @@ Use `--platform linux/arm64` for arm64. It runs under emulation and is slow.
 
 The integration test installs the tools into a temporary folder unless `VID2GIF_BIN` is set (see [Where the tools live](#where-the-tools-live)); set it to reuse an existing folder such as `bin/` so nothing is downloaded again.
 
-On GitHub, `.github/workflows/ci.yml` checks gofmt, runs `go vet`, the Go unit tests and the app's JavaScript tests on every push and pull request, and a second job builds the desktop app and runs the Go tests on Windows. `integration.yml` runs the integration test on Windows, Linux amd64 and Linux arm64 every week and whenever `deps.json` or the code that uses it changes. The pinned tools are about 250 MB, so they're cached: the Linux jobs reuse Docker layers (`build/Dockerfile.test` puts the tools in their own layer, which only rebuilds when `deps.json`, `go.mod`, `go.sum` or the installer changes), and the Windows job caches the tools folder. The weekly run skips those caches so it still catches a pinned download that has been removed upstream. Neither workflow contacts YouTube; the integration test only downloads the pinned tools from GitHub releases.
+On GitHub, `.github/workflows/ci.yml` checks gofmt, runs `go vet`, the Go unit tests and the app's JavaScript tests on every push and pull request, and a second job builds the desktop app and runs the Go tests on Windows, then installs WiX and runs `installer\test.ps1` (which downloads the pinned tools). `integration.yml` runs the integration test on Windows, Linux amd64 and Linux arm64 every week and whenever `deps.json` or the code that uses it changes. The pinned tools are about 250 MB, so they're cached: the Linux jobs reuse Docker layers (`build/Dockerfile.test` puts the tools in their own layer, which only rebuilds when `deps.json`, `go.mod`, `go.sum` or the installer changes), and the Windows job caches the tools folder. The weekly run skips those caches so it still catches a pinned download that has been removed upstream. Neither workflow contacts YouTube; the integration and MSI tests only download the pinned tools from GitHub releases.
 
 ## Architecture
 

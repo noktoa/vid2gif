@@ -1,4 +1,6 @@
-# Interactive release: build vid2gif.exe and vid2gif-app.exe, write checksums.txt, publish a GitHub release via gh.
+# Interactive release: build vid2gif.exe, vid2gif-app.exe and the MSI, write checksums.txt, publish a GitHub release via gh.
+# The MSI needs WiX: dotnet tool install --global wix --version 6.0.2
+#   wix extension add --global WixToolset.UI.wixext/6.0.2 WixToolset.Util.wixext/6.0.2
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
@@ -23,6 +25,17 @@ Write-Host 'Building vid2gif-app.exe...'
 go build -trimpath -tags desktop,production -ldflags '-H windowsgui -s -w' -o "$dist\vid2gif-app.exe" ./cmd/vid2gif-app
 if ($LASTEXITCODE) { throw 'go build (app) failed' }
 
+# MSI versions are a.b.c only, so a pre-release tag (v0.1.0-rc1) ships the exes without an MSI
+$ver = $tag.TrimStart('v')
+if ($ver -match '^\d+\.\d+\.\d+$') {
+    Write-Host "Building vid2gif-$ver.msi..."
+    wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=$ver -d AppExe=dist\vid2gif-app.exe -o "dist\vid2gif-$ver.msi"
+    if ($LASTEXITCODE) { throw 'wix build failed (is WiX installed? see the top of this script)' }
+    Remove-Item "$dist\*.wixpdb"
+} else {
+    Write-Warning "'$tag' is not a.b.c, so no MSI is built for it."
+}
+
 # sha256sum format; LF endings, no BOM
 $sums = Get-ChildItem $dist -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" }
 [IO.File]::WriteAllText("$dist\checksums.txt", ($sums -join "`n") + "`n")
@@ -33,5 +46,5 @@ if ((Read-Host "Push tag and publish release $tag? [y/N]") -ne 'y') { Write-Host
 git tag $tag
 git push origin $tag
 if ($LASTEXITCODE) { throw 'git push failed' }
-gh release create $tag "$dist\vid2gif.exe" "$dist\vid2gif-app.exe" "$dist\deps.json" "$dist\checksums.txt" --title $tag --generate-notes
+gh release create $tag (Get-ChildItem $dist -File).FullName --title $tag --generate-notes
 if ($LASTEXITCODE) { throw 'gh release create failed' }

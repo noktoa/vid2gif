@@ -35,3 +35,11 @@ jobs:
       - run: go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o dist/vid2gif-app.exe ./cmd/vid2gif-app
       - run: go vet ./...
       - run: go test ./...
+      - name: Install WiX
+        run: |
+          dotnet tool install --global wix --version 6.0.2
+          wix extension add --global WixToolset.UI.wixext/6.0.2 WixToolset.Util.wixext/6.0.2
+      # Builds the MSI as 0.0.1 and 0.0.2, installs per-user, upgrades and
+      # uninstalls; the install step downloads the pinned tools (about 250 MB).
+      - name: MSI test
+        run: ./installer/test.ps1
