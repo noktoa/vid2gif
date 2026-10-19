@@ -259,7 +259,7 @@ func gifOpts(quality string) Opts {
 func TestDownloadArgsGifOnlyUsesWidthSelector(t *testing.T) {
 	for q, w := range map[string]string{"low": "320", "medium": "480", "high": "720"} {
 		args := ytdlpDownloadArgs(gifOpts(q), "ffmpeg", "", "tmp", false)
-		if got, want := argAfter(args, "-f"), "bv*[width>="+w+"]/wv*/w"; got != want {
+		if got, want := argAfter(args, "-f"), "bv*[width>="+w+"]/wv*[width<"+w+"]/bv*/b"; got != want {
 			t.Errorf("%s: -f = %q; want %q", q, got, want)
 		}
 		if argAfter(args, "-S") != "+width" {
@@ -267,6 +267,16 @@ func TestDownloadArgsGifOnlyUsesWidthSelector(t *testing.T) {
 		}
 		if strings.Contains(strings.Join(args, " "), "height") {
 			t.Errorf("%s: must not cap by height (portrait videos would shrink): %q", q, args)
+		}
+	}
+}
+
+// An unknown quality has no width to aim for, so it must not narrow the source.
+func TestDownloadArgsUnknownQualityKeepsFullSelector(t *testing.T) {
+	for _, q := range []string{"", "bogus"} {
+		args := ytdlpDownloadArgs(gifOpts(q), "ffmpeg", "", "tmp", false)
+		if argAfter(args, "-f") != "bv*/b" || slices.Contains(args, "-S") {
+			t.Errorf("quality %q: args = %q", q, args)
 		}
 	}
 }

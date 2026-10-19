@@ -271,10 +271,14 @@ func ytdlpDownloadArgs(o Opts, ffmpegPath, deno, tmpDir string, wantAudio bool) 
 		format = "bv*+ba/b"
 	} else if w := encode.PresetWidth(o.Quality); w > 0 && !o.FullSource {
 		// gif/webp are scaled down to w, so fetch the smallest video at least
-		// w wide. -S +width makes bv* the narrowest, so wv* (the fallback when
-		// nothing is wide enough) is the widest. No height cap: a portrait
-		// video's width is its short side.
-		format = fmt.Sprintf("bv*[width>=%d]/wv*/w", w)
+		// w wide. With -S +width, bv*[width>=w] is the narrowest such format
+		// and wv*[width<w] (when nothing is wide enough) is the widest of the
+		// narrower ones. A filter drops formats whose width is unknown, so a
+		// source that reports no width at all matches neither; the trailing
+		// bv*/b then take the best format as before (all widths tie, so the
+		// default quality order decides), instead of the narrowest. No height
+		// cap: a portrait video's width is its short side.
+		format = fmt.Sprintf("bv*[width>=%d]/wv*[width<%[1]d]/bv*/b", w)
 		sort = []string{"-S", "+width"}
 	}
 	end := "inf" // End 0 = until the end of the video
