@@ -32,7 +32,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o dist/vid2gif-app.exe ./cmd/vid2gif-app
+      - run: go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w -X main.version=ci" -o dist/vid2gif-app.exe ./cmd/vid2gif-app
       - run: go vet ./...
       - run: go test ./...
       - name: Install WiX
