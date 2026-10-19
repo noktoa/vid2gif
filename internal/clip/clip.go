@@ -87,6 +87,24 @@ func (p Pipeline) Run(ctx context.Context, o Opts) error {
 	return err
 }
 
+// cancelErr reports a failure after the context was cancelled as the
+// cancellation itself: the tool was killed, so its exit status (and any
+// "update yt-dlp" hint) says nothing useful.
+func cancelErr(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
+// taskkillPath prefers the system copy so a taskkill.exe planted on PATH is not run.
+func taskkillPath() string {
+	if root := os.Getenv("SystemRoot"); root != "" {
+		return filepath.Join(root, "System32", "taskkill.exe")
+	}
+	return "taskkill"
+}
+
 func orDefault(s, def string) string {
 	if s == "" {
 		return def
@@ -120,7 +138,7 @@ func (p Pipeline) run(ctx context.Context, o Opts) error {
 		p.log.Printf("run: %s %s", orDefault(p.ytdlp, "yt-dlp"), strings.Join(ytdlpTitleArgs(o.URL, p.deno), " "))
 		title, err := p.title(ctx, o.URL)
 		if err != nil {
-			return fail("", fmt.Errorf("fetching title: %w", err))
+			return fail("", cancelErr(ctx, fmt.Errorf("fetching title: %w", err)))
 		}
 		name = naming.BuildName(title, o.Start, o.End, o.Quality)
 	}
@@ -154,7 +172,7 @@ func (p Pipeline) run(ctx context.Context, o Opts) error {
 	emit(Event{Stage: StageDownload, Pct: dlPct})
 	clip, err := p.download(ctx, o, tmp, wantAudio, tick(StageDownload, ""))
 	if err != nil {
-		return fail("", err)
+		return fail("", cancelErr(ctx, err))
 	}
 
 	wrote, failed := 0, 0
@@ -168,6 +186,7 @@ func (p Pipeline) run(ctx context.Context, o Opts) error {
 		p.log.Printf("run: %s %s", orDefault(p.ffmpeg, "ffmpeg"), strings.Join(encode.Args(clip, part, eo), " "))
 		emit(Event{Stage: StageEncode, Pct: 0, Path: final})
 		if err := p.encode(ctx, clip, part, eo, tick(StageEncode, final)); err != nil {
+			err = cancelErr(ctx, err)
 			fmt.Fprintf(p.out, "failed %s: %v\n", final, err)
 			emit(Event{Stage: StageFailed, Pct: -1, Path: final, Err: err})
 			if ctx.Err() != nil { // cancelled, not a bad format: stop
@@ -303,7 +322,7 @@ func teeStderr(ctx context.Context, prefix string, next io.Writer) (io.Writer, f
 // ponytail: tree kill is Windows-only (taskkill /T); on Unix only the direct child dies, add a process group if orphans show up.
 func runTool(cmd *exec.Cmd) error {
 	cmd.Cancel = func() error {
-		if runtime.GOOS == "windows" && exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run() == nil {
+		if runtime.GOOS == "windows" && exec.Command(taskkillPath(), "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run() == nil {
 			return nil
 		}
 		return cmd.Process.Kill()
@@ -325,7 +344,7 @@ func New(ytdlp, ffmpeg, deno, hint string, out io.Writer) Pipeline {
 			err := runTool(cmd)
 			done()
 			if err != nil {
-				return "", withHint(fmt.Errorf("yt-dlp: %w", err), hint)
+				return "", cancelErr(ctx, withHint(fmt.Errorf("yt-dlp: %w", err), hint))
 			}
 			title, _, _ := strings.Cut(strings.TrimSpace(stdout.String()), "\n")
 			return strings.TrimSpace(title), nil
@@ -338,7 +357,7 @@ func New(ytdlp, ffmpeg, deno, hint string, out io.Writer) Pipeline {
 			err := runTool(cmd)
 			done()
 			if err != nil {
-				return "", withHint(fmt.Errorf("yt-dlp: %w", err), hint)
+				return "", cancelErr(ctx, withHint(fmt.Errorf("yt-dlp: %w", err), hint))
 			}
 			return pickClipFile(tmpDir)
 		},
@@ -350,7 +369,7 @@ func New(ytdlp, ffmpeg, deno, hint string, out io.Writer) Pipeline {
 			err := runTool(cmd)
 			done()
 			if err != nil {
-				return fmt.Errorf("ffmpeg: %w\n%s", err, strings.TrimSpace(buf.String()))
+				return cancelErr(ctx, fmt.Errorf("ffmpeg: %w\n%s", err, strings.TrimSpace(buf.String())))
 			}
 			return nil
 		},

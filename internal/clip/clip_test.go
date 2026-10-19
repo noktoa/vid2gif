@@ -313,9 +313,12 @@ func TestYtdlpSectionRunsToEndWhenNoEnd(t *testing.T) {
 // TestMain doubles as a stand-in for yt-dlp/ffmpeg: with VID2GIF_HELPER set,
 // the test binary just sleeps so cancellation can be tested on a real process.
 func TestMain(m *testing.M) {
-	if os.Getenv("VID2GIF_HELPER") == "sleep" {
+	switch os.Getenv("VID2GIF_HELPER") {
+	case "sleep":
 		time.Sleep(time.Minute)
 		os.Exit(0)
+	case "fail":
+		os.Exit(1)
 	}
 	os.Exit(m.Run())
 }
@@ -466,12 +469,14 @@ func TestRealToolsStopOnCancel(t *testing.T) {
 			return p.encode(ctx, "in", filepath.Join(t.TempDir(), "out.gif"), encode.Opts{Format: "gif"}, nil)
 		},
 	} {
-		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(300*time.Millisecond, cancel)
 		start := time.Now()
 		err := run(ctx)
 		cancel()
-		if err == nil || time.Since(start) > 15*time.Second {
-			t.Errorf("%s: err=%v after %v; want prompt failure", name, err, time.Since(start))
+		// Under the 5s WaitDelay: fails if Cancel did nothing and Wait merely gave up.
+		if !errors.Is(err, context.Canceled) || time.Since(start) > 4*time.Second {
+			t.Errorf("%s: err=%v after %v; want context.Canceled promptly", name, err, time.Since(start))
 		}
 	}
 }
@@ -550,5 +555,53 @@ func TestLineWriterLogsEachLine(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in\n%s", want, got)
 		}
+	}
+}
+
+// A killed tool exits non-zero; Run must still report the cancel, with no
+// "update yt-dlp" hint, and must not start the next format.
+func TestRunCancelWithToolExitErrorReportsCanceled(t *testing.T) {
+	for _, where := range []string{"download", "encode"} {
+		t.Run(where, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			var out bytes.Buffer
+			p, _ := fakePipeline(&out)
+			encodes := 0
+			toolErr := errors.New("yt-dlp: exit status 1\nBUMP-THE-PIN")
+			if where == "download" {
+				p.download = func(context.Context, Opts, string, bool, func(float64)) (string, error) {
+					cancel()
+					return "", toolErr
+				}
+			} else {
+				p.encode = func(context.Context, string, string, encode.Opts, func(float64)) error {
+					encodes++
+					cancel()
+					return toolErr
+				}
+			}
+			o := baseOpts(t.TempDir(), "gif", "mp4")
+			evs := collect(&o)
+			err := p.Run(ctx, o)
+			if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "BUMP") || strings.Contains(out.String(), "BUMP") {
+				t.Errorf("err = %v; out = %q", err, out.String())
+			}
+			if encodes > 1 {
+				t.Errorf("encodes = %d; remaining formats must not run", encodes)
+			}
+			if last := (*evs)[len(*evs)-1]; last.Stage != StageFailed || !errors.Is(last.Err, context.Canceled) {
+				t.Errorf("last event = %+v; want failed with context.Canceled", last)
+			}
+		})
+	}
+}
+
+// Without a cancel, a failing tool keeps its error text and the hint.
+func TestRealToolFailureKeepsHint(t *testing.T) {
+	t.Setenv("VID2GIF_HELPER", "fail")
+	p := New(os.Args[0], os.Args[0], "", "BUMP-THE-PIN", io.Discard)
+	_, err := p.download(context.Background(), Opts{URL: "https://x"}, t.TempDir(), false, nil)
+	if err == nil || errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "exit status 1") || !strings.Contains(err.Error(), "BUMP-THE-PIN") {
+		t.Errorf("err = %v; want yt-dlp exit error with hint", err)
 	}
 }
