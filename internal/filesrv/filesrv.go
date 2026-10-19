@@ -1,7 +1,7 @@
-// Package filesrv serves generated previews (GIF/WebP/MP4/MOV) from allowed
-// folders to the desktop WebView. The page chooses the path, so every request
-// is treated as hostile: only absolute paths whose real location (symlinks
-// resolved) is inside an allowed folder, with a media extension, are served.
+// Package filesrv serves the previews the app made (GIF/WebP/MP4/MOV) to the
+// desktop WebView. The page chooses the path, so every request is treated as
+// hostile: only exact files URL has issued are served, and only while their
+// real location (symlinks resolved) is a media file inside an allowed folder.
 package filesrv
 
 import (
@@ -34,8 +34,9 @@ func init() {
 
 // Server serves media files from allowed folders. Safe for concurrent use.
 type Server struct {
-	mu   sync.RWMutex
-	dirs []string
+	mu     sync.RWMutex
+	dirs   []string
+	issued map[string]bool // cleaned paths URL has returned: the only ones served
 
 	// Filesystem hooks, swapped in tests to prove nothing is touched for
 	// paths outside the allowed folders.
@@ -43,7 +44,9 @@ type Server struct {
 	stat         func(string) (os.FileInfo, error)
 }
 
-func New() *Server { return &Server{evalSymlinks: filepath.EvalSymlinks, stat: os.Stat} }
+func New() *Server {
+	return &Server{issued: map[string]bool{}, evalSymlinks: filepath.EvalSymlinks, stat: os.Stat}
+}
 
 // Allow adds a folder the page may read from. It ignores (and returns false
 // for) an empty or whitespace-only name and a filesystem root such as "/" or
@@ -81,7 +84,8 @@ func (s *Server) allowed() []string {
 func escapePath(p string) string { return url.PathEscape(p) }
 
 // URL returns the /out/ URL for path, or false when it is not a media file
-// lexically under an allowed folder. The file need not exist yet.
+// lexically under an allowed folder. The file need not exist yet. Only paths
+// URL has returned are ever served, so call it only for files the app made.
 func (s *Server) URL(path string) (string, bool) {
 	abs, err := filepath.Abs(path)
 	if err != nil || !isMedia(abs) {
@@ -90,10 +94,24 @@ func (s *Server) URL(path string) (string, bool) {
 	abs = filepath.Clean(abs)
 	for _, d := range s.allowed() {
 		if within(d, abs) {
+			s.mu.Lock()
+			s.issued[abs] = true
+			s.mu.Unlock()
 			return prefix + escapePath(abs), true
 		}
 	}
 	return "", false
+}
+
+// Issued reports whether URL has returned a URL for path (a made file).
+func (s *Server) Issued(path string) bool {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.issued[filepath.Clean(abs)]
 }
 
 func isMedia(p string) bool {
@@ -131,7 +149,13 @@ func (s *Server) resolve(p string) (string, bool) {
 		return "", false
 	}
 	p = filepath.Clean(p)
-	// Lexical containment first: nothing (UNC shares, pipes, dead drives) is
+	s.mu.RLock()
+	issued := s.issued[p]
+	s.mu.RUnlock()
+	if !issued {
+		return "", false
+	}
+	// Lexical containment next (defence in depth): nothing (UNC shares, pipes, dead drives) is
 	// touched on disk for a path outside every allowed folder.
 	lexical := false
 	for _, d := range s.allowed() {

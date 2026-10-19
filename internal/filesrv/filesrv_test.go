@@ -138,7 +138,7 @@ func TestRejectsNonMediaExtension(t *testing.T) {
 func TestExtensionCaseInsensitive(t *testing.T) {
 	s, dir := setup(t)
 	p := write(t, dir, "UP.GIF", "x")
-	if w := get(s, "/out/"+escapePath(p)); w.Code != 200 {
+	if w := get(s, issue(t, s, p)); w.Code != 200 {
 		t.Fatalf("code=%d", w.Code)
 	}
 }
@@ -173,7 +173,7 @@ func TestSymlinkInsideAllowed(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if w := get(s, "/out/"+escapePath(link)); w.Code != 200 {
+	if w := get(s, issue(t, s, link)); w.Code != 200 {
 		t.Fatalf("code=%d", w.Code)
 	}
 }
@@ -181,7 +181,7 @@ func TestSymlinkInsideAllowed(t *testing.T) {
 func TestRangeRequestGets206(t *testing.T) {
 	s, dir := setup(t)
 	p := write(t, dir, "v.mp4", "0123456789")
-	w := get(s, "/out/"+escapePath(p), "Range", "bytes=2-4")
+	w := get(s, issue(t, s, p), "Range", "bytes=2-4")
 	if w.Code != http.StatusPartialContent || w.Body.String() != "234" {
 		t.Fatalf("code=%d body=%q", w.Code, w.Body.String())
 	}
@@ -203,7 +203,7 @@ func TestContentTypes(t *testing.T) {
 		".gif": "image/gif", ".webp": "image/webp", ".mp4": "video/mp4", ".mov": "video/quicktime", ".MP4": "video/mp4",
 	} {
 		p := write(t, dir, "f"+ext, "x")
-		w := get(s, "/out/"+escapePath(p))
+		w := get(s, issue(t, s, p))
 		if got := w.Header().Get("Content-Type"); got != want {
 			t.Errorf("%s: got %q want %q", ext, got, want)
 		}
@@ -213,7 +213,7 @@ func TestContentTypes(t *testing.T) {
 func TestMethods(t *testing.T) {
 	s, dir := setup(t)
 	p := write(t, dir, "a.gif", "x")
-	u := "/out/" + escapePath(p)
+	u := issue(t, s, p)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, u, nil))
 	if w.Code != http.StatusMethodNotAllowed {
@@ -289,7 +289,7 @@ func TestOutsidePathsNeverTouchDisk(t *testing.T) {
 func TestInsidePathDoesTouchDisk(t *testing.T) { // guards the hook test above
 	s, dir, n := hooked(t)
 	p := write(t, dir, "a.gif", "x")
-	if w := get(s, "/out/"+escapePath(p)); w.Code != 200 || *n == 0 {
+	if w := get(s, issue(t, s, p)); w.Code != 200 || *n == 0 {
 		t.Fatalf("code=%d touched=%d", w.Code, *n)
 	}
 }
@@ -327,5 +327,33 @@ func TestRejectsAlternateDataStream(t *testing.T) {
 	}
 	if _, ok := s.URL(p); ok {
 		t.Error("URL ok for ADS")
+	}
+}
+
+// issue asks the server for p's URL, as the app does for a made file.
+func issue(t *testing.T, s *Server, p string) string {
+	t.Helper()
+	u, ok := s.URL(p)
+	if !ok {
+		t.Fatalf("URL(%s) refused", p)
+	}
+	return u
+}
+
+func TestNeverIssuedFileInAllowedFolderIs404(t *testing.T) {
+	s, dir := setup(t)
+	p := write(t, dir, "old.gif", "x")
+	if w := get(s, "/out/"+escapePath(p)); w.Code != 404 {
+		t.Fatalf("never-issued file: code=%d", w.Code)
+	}
+	if s.Issued(p) {
+		t.Fatal("Issued true before URL")
+	}
+	u := issue(t, s, p)
+	if !s.Issued(p) {
+		t.Fatal("Issued false after URL")
+	}
+	if w := get(s, u); w.Code != 200 {
+		t.Fatalf("issued file: code=%d", w.Code)
 	}
 }
