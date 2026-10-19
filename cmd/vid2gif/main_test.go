@@ -17,20 +17,27 @@ func TestParseClipArgsDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if o.URL != "https://x/y" || o.Start != 83 || o.End != 0 || !slices.Equal(o.Formats, []string{"gif"}) ||
-		o.OutDir != "./gifs" || o.Quality != "medium" || o.Name != "" || o.Overwrite || o.NoPin {
+		o.OutDir != "./gifs" || o.Quality != "medium" || o.Name != "" || o.Overwrite || o.NoPin || o.FullSource {
 		t.Errorf("unexpected defaults: %+v", o)
 	}
 }
 
 func TestParseClipArgsAllFlagsAfterURL(t *testing.T) {
 	o, err := parseClipArgs([]string{"https://x/y", "--start", "10", "--end", "1:00", "--format", "gif,mp4",
-		"--out", "D", "--name", "demo", "--quality", "high", "--overwrite", "--no-pin"})
+		"--out", "D", "--name", "demo", "--quality", "high", "--overwrite", "--no-pin", "--full-source"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if o.Start != 10 || o.End != 60 || !slices.Equal(o.Formats, []string{"gif", "mp4"}) || o.OutDir != "D" ||
-		o.Name != "demo" || o.Quality != "high" || !o.Overwrite || !o.NoPin {
+		o.Name != "demo" || o.Quality != "high" || !o.Overwrite || !o.NoPin || !o.FullSource {
 		t.Errorf("unexpected opts: %+v", o)
+	}
+}
+
+func TestParseClipArgsFullSource(t *testing.T) {
+	o, err := parseClipArgs([]string{"https://x/y", "--start", "1", "--full-source"})
+	if err != nil || !o.FullSource {
+		t.Errorf("FullSource = %v, err = %v; want true", o.FullSource, err)
 	}
 }
 
@@ -74,7 +81,7 @@ func TestHelpListsCommandsFlagsAndExample(t *testing.T) {
 		}
 		for _, want := range []string{
 			"vid2gif clip <url>", "vid2gif deps install", "Example:", "--start 1:23",
-			"-start", "-end", "-format", "-out", "-name", "-quality", "-overwrite", "-no-pin",
+			"-start", "-end", "-format", "-out", "-name", "-quality", "-overwrite", "-no-pin", "-full-source",
 		} {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("realMain(%v) help is missing %q:\n%s", args, want, out.String())

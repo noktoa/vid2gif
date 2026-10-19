@@ -49,6 +49,7 @@ Run `vid2gif help` to see all of this in the terminal.
 | `--name BASE` | `<video title>_<start>-<end>` | File name without the extension. Each format adds its own. With no `--end` the end part is the word `end`, as in `title_83-end`. At `--quality low` or `high` the default name ends in `_low` or `_high` (`title_83-88_high`), so the same clip at another quality is a new file, not a skip. `medium` adds nothing. A name you give with `--name` is used exactly as typed. |
 | `--quality Q` | `medium` | `low`, `medium` or `high`. See below. |
 | `--overwrite` | off | Replace files that already exist. |
+| `--full-source` | off | GIF and WebP only. Normally vid2gif downloads the smallest video at least as wide as the quality needs (320, 480 or 720 pixels), which is a smaller download and gives a GIF or WebP of the same size. This flag downloads the best video instead. MP4 and MOV always use the best video. |
 | `--no-pin` | off | Skip the version check. The tools folder is still searched first, then your PATH. deno is optional here. |
 
 Times are written as `SS`, `MM:SS` or `HH:MM:SS`. Only the last part can have decimals.

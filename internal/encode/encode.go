@@ -24,6 +24,10 @@ var Presets = map[string]Preset{
 	"high":   {24, 720, "sierra2_4a", 90, 18},
 }
 
+// PresetWidth is the output width of a quality (0 if unknown): the clip is
+// never scaled above it, so a source narrower than this is wasted download.
+func PresetWidth(quality string) int { return Presets[quality].width }
+
 type Opts struct {
 	Format string
 	Preset Preset

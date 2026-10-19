@@ -246,8 +246,58 @@ func TestYtdlpDownloadArgs(t *testing.T) {
 	if argAfter(args, "-f") != "bv*+ba/b" || !slices.Contains(args, "--force-keyframes-at-cuts") {
 		t.Errorf("args = %q", args)
 	}
+	o.FullSource = true
 	if got := argAfter(ytdlpDownloadArgs(o, "f", "", "/tmp/x", false), "-f"); got != "bv*/b" {
-		t.Errorf("video-only format = %q", got)
+		t.Errorf("video-only full-source format = %q", got)
+	}
+}
+
+func gifOpts(quality string) Opts {
+	return Opts{URL: "https://x", Start: 1, End: 2, Quality: quality}
+}
+
+func TestDownloadArgsGifOnlyUsesWidthSelector(t *testing.T) {
+	for q, w := range map[string]string{"low": "320", "medium": "480", "high": "720"} {
+		args := ytdlpDownloadArgs(gifOpts(q), "ffmpeg", "", "tmp", false)
+		if got, want := argAfter(args, "-f"), "bv*[width>="+w+"]/wv*/w"; got != want {
+			t.Errorf("%s: -f = %q; want %q", q, got, want)
+		}
+		if argAfter(args, "-S") != "+width" {
+			t.Errorf("%s: -S = %q; want +width (smallest first)", q, argAfter(args, "-S"))
+		}
+		if strings.Contains(strings.Join(args, " "), "height") {
+			t.Errorf("%s: must not cap by height (portrait videos would shrink): %q", q, args)
+		}
+	}
+}
+
+func TestDownloadArgsMp4KeepsFullSelector(t *testing.T) {
+	args := ytdlpDownloadArgs(gifOpts("low"), "ffmpeg", "", "tmp", true)
+	if argAfter(args, "-f") != "bv*+ba/b" || slices.Contains(args, "-S") {
+		t.Errorf("args = %q", args)
+	}
+}
+
+func TestDownloadArgsFullSourceKeepsFullSelector(t *testing.T) {
+	o := gifOpts("low")
+	o.FullSource = true
+	args := ytdlpDownloadArgs(o, "ffmpeg", "", "tmp", false)
+	if argAfter(args, "-f") != "bv*/b" || slices.Contains(args, "-S") {
+		t.Errorf("args = %q", args)
+	}
+}
+
+// A gif plus an mp4 sets wantAudio (see TestRunWritesAllFormats), so the gif is
+// cut from the same full-quality download the mp4 needs.
+func TestDownloadArgsMixedGifMp4KeepsFullSelector(t *testing.T) {
+	p, st := fakePipeline(io.Discard)
+	o := baseOpts(t.TempDir(), "gif", "mp4")
+	if err := p.Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	args := ytdlpDownloadArgs(o, "ffmpeg", "", "tmp", st.wantAudio)
+	if argAfter(args, "-f") != "bv*+ba/b" || slices.Contains(args, "-S") {
+		t.Errorf("wantAudio=%v args = %q", st.wantAudio, args)
 	}
 }
 

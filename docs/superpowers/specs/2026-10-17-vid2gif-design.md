@@ -29,7 +29,7 @@ A GUI or web UI, batch/playlist mode, a config file, gifski, trimming to a targe
 ```
 vid2gif clip <url> --start T [--end T] [--format gif,webp,mp4,mov]
                    [--out DIR] [--name BASE] [--quality low|medium|high]
-                   [--overwrite] [--no-pin]
+                   [--overwrite] [--full-source] [--no-pin]
 vid2gif deps install
 ```
 
@@ -46,6 +46,7 @@ The URL is taken as the first argument after `clip`; Go's `flag` package parses 
 | `--name` | `<sanitized-title>_<start>-<end>[_low\|_high]` | base name, no extension; each format adds its own |
 | `--quality` | `medium` | see table below |
 | `--overwrite` | off | replace existing outputs |
+| `--full-source` | off | gif/webp only: download the best video instead of the smallest one at least as wide as the quality's width |
 | `--no-pin` | off | skip version checks and use yt-dlp/ffmpeg/deno from PATH (deno optional) |
 
 Exit codes: `0` success (including skipped outputs), `1` runtime failure (download or encode failed, tool missing or wrong version), `2` usage error (bad flag or timestamp).
@@ -68,7 +69,7 @@ Width is a cap: sources narrower than the cap are not upscaled. fps and width pr
 4. **Plan outputs.** For each requested format, if `<out>/<name>.<ext>` exists and `--overwrite` is not set, print `skipped <file> (already exists; use --overwrite to replace)` and drop it from the plan. If nothing is left, stop with exit `0` before downloading.
 5. **Download once** into a temp dir created inside `--out` (`.vid2gif-tmp-*`, so the final move is a same-volume rename). yt-dlp is run with:
    `--no-playlist --download-sections "*START-END" --force-keyframes-at-cuts --merge-output-format mkv --ffmpeg-location <pinned ffmpeg dir> --ignore-config --no-js-runtimes --js-runtimes deno:<pinned deno> -o <tmp>/clip.%(ext)s`
-   plus `-f "bv*+ba/b"` when mp4 or mov is planned, or `-f "bv*/b"` (no audio download) when only gif/webp are planned. yt-dlp's stdout and stderr stream to the terminal. `--ffmpeg-location` is mandatory; without it yt-dlp would use whatever ffmpeg is on PATH and defeat the pin.
+   plus `-f "bv*+ba/b"` when mp4 or mov is planned or `--full-source` is set with mp4/mov; when only gif/webp are planned (no audio download), `-S +width -f "bv*[width>=W]/wv*/w"` where `W` is the quality's output width (320 / 480 / 720; `encode.PresetWidth`): the smallest video at least `W` wide, since gif/webp are never scaled above `W`. `-S +width` makes `bv*` the narrowest match and so `wv*` the widest format, which is the fallback when nothing is `W` wide. There is deliberately no height cap (a portrait video's width is its short side). With `--full-source`, gif/webp use `-f "bv*/b"`. yt-dlp's stdout and stderr stream to the terminal. `--ffmpeg-location` is mandatory; without it yt-dlp would use whatever ffmpeg is on PATH and defeat the pin.
 6. **Encode each planned format** from the downloaded clip into the temp dir, then rename into `--out`. A failure in one format does not delete outputs already written; the run continues with the remaining formats and exits `1` at the end.
 7. **Clean up** the temp dir (also on Ctrl+C, via a cancellable context passed to every child process).
 8. **Summarize**: print each written path with its size, and a final line such as `wrote 2, skipped 1`.

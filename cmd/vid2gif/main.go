@@ -44,10 +44,11 @@ func newClipFlags(o *clip.Opts, start, end, formats *string) *flag.FlagSet {
 	fs.StringVar(end, "end", "", "end time (default: the end of the video)")
 	fs.StringVar(formats, "format", "gif", "comma-separated: gif,webp,mp4,mov")
 	fs.StringVar(&o.OutDir, "out", "./gifs", "output directory (created if missing)")
-	fs.StringVar(&o.Name, "name", "", "file name without extension (default <title>_<start>-<end>)")
+	fs.StringVar(&o.Name, "name", "", "file name without extension (default <title>_<start>-<end>, plus _low or _high for those qualities)")
 	fs.StringVar(&o.Quality, "quality", "medium", "low, medium or high")
 	fs.BoolVar(&o.Overwrite, "overwrite", false, "replace existing output files (default: skip them)")
 	fs.BoolVar(&o.NoPin, "no-pin", false, "use yt-dlp and ffmpeg from PATH without version checks")
+	fs.BoolVar(&o.FullSource, "full-source", false, "gif/webp only: download the best video instead of the smallest one at least as wide as the quality (slower; same dimensions)")
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), usage, "\nFlags for clip:\n")
 		fs.PrintDefaults()

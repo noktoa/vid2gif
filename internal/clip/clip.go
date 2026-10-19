@@ -53,6 +53,7 @@ type Opts struct {
 	Quality    string
 	Overwrite  bool
 	NoPin      bool
+	FullSource bool // gif/webp only: download the best video, not the smallest one wide enough
 
 	OnEvent     func(Event) // nil = ignore
 	DurationSec float64     // length of the clip if known; 0 = unknown
@@ -265,15 +266,23 @@ func JSRuntimeArgs(deno string) []string {
 // value starting with "-" is never read as an option.
 func ytdlpDownloadArgs(o Opts, ffmpegPath, deno, tmpDir string, wantAudio bool) []string {
 	format := "bv*/b"
+	var sort []string
 	if wantAudio {
 		format = "bv*+ba/b"
+	} else if w := encode.PresetWidth(o.Quality); w > 0 && !o.FullSource {
+		// gif/webp are scaled down to w, so fetch the smallest video at least
+		// w wide. -S +width makes bv* the narrowest, so wv* (the fallback when
+		// nothing is wide enough) is the widest. No height cap: a portrait
+		// video's width is its short side.
+		format = fmt.Sprintf("bv*[width>=%d]/wv*/w", w)
+		sort = []string{"-S", "+width"}
 	}
 	end := "inf" // End 0 = until the end of the video
 	if o.End > 0 {
 		end = naming.FmtSeconds(o.End)
 	}
 	args := append([]string{"--ignore-config"}, JSRuntimeArgs(deno)...)
-	return append(args,
+	return append(append(args, sort...),
 		"--no-playlist",
 		"-f", format,
 		"--download-sections", fmt.Sprintf("*%s-%s", naming.FmtSeconds(o.Start), end),

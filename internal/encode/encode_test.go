@@ -16,6 +16,14 @@ func argAfter(args []string, key string) string {
 	return ""
 }
 
+func TestPresetWidth(t *testing.T) {
+	for q, w := range map[string]int{"low": 320, "medium": 480, "high": 720, "": 0, "bogus": 0} {
+		if got := PresetWidth(q); got != w {
+			t.Errorf("PresetWidth(%q) = %d; want %d", q, got, w)
+		}
+	}
+}
+
 func TestFfmpegArgsGifMedium(t *testing.T) {
 	got := Args("in.mkv", "out.gif", Opts{Format: "gif", Preset: Presets["medium"]})
 	want := []string{
