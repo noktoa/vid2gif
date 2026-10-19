@@ -1,9 +1,14 @@
 // Dev-only fake of the Go side, so the page opens in a plain browser.
-// index.html loads this file only when window.go is missing (never in the
-// app). Shapes follow internal/appcore and internal/runner JSON tags exactly.
+// Loading contract: index.html document.write()s this script, synchronously,
+// only when window.go is missing, so in the app it is never fetched. App
+// scripts placed after that inline loader can rely on window.go and
+// window.runtime existing when they run; app.js should still wait for
+// window.go before its first call (a deferred/module script satisfies this).
+// Shapes follow internal/appcore and internal/runner JSON tags exactly.
 // index.html?setup makes Boot report that the helper files are missing;
 // index.html?setup=fail also makes Install fail.
 (() => {
+  if (window.go) return; // the real bindings win
   const params = new URLSearchParams(location.search);
   const listeners = {};
   const emit = (name, data) => (listeners[name] || []).slice().forEach((cb) => cb(data));

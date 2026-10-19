@@ -16,10 +16,10 @@
     <!-- gear: Feather Icons "settings" (MIT) -->
     <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
     <!-- PLACEHOLDER sample thumbnails (made up), used only by the sample slips below -->
-    <symbol id="scene-cake" viewBox="0 0 160 100"><rect width="160" height="100" fill="#F7B6CF"/><rect x="40" y="52" width="80" height="36" fill="#FBFAF6"/><rect x="40" y="52" width="80" height="10" fill="#E6007E"/><rect x="77" y="30" width="6" height="22" fill="#FFD60A"/><circle cx="80" cy="26" r="5" fill="#FF8A1F"/></symbol>
-    <symbol id="scene-toast" viewBox="0 0 160 100"><rect width="160" height="100" fill="#9ED8D2"/><rect y="70" width="160" height="30" fill="#1E1B24"/><rect x="62" y="34" width="14" height="40" fill="#FBFAF6"/><rect x="84" y="34" width="14" height="40" fill="#FFD60A"/><circle cx="69" cy="26" r="9" fill="#F1F0EA"/><circle cx="91" cy="26" r="9" fill="#F1F0EA"/></symbol>
-    <symbol id="scene-skate" viewBox="0 0 160 100"><rect width="160" height="100" fill="#FFD60A"/><polygon points="0,100 70,52 160,100" fill="#1E1B24"/><rect x="58" y="40" width="46" height="7" rx="3" fill="#E6007E" transform="rotate(-18 80 44)"/><circle cx="68" cy="56" r="4" fill="#FBFAF6"/><circle cx="96" cy="48" r="4" fill="#FBFAF6"/></symbol>
-    <symbol id="scene-fuji" viewBox="0 0 160 100"><rect width="160" height="100" fill="#FF9A5C"/><circle cx="116" cy="34" r="16" fill="#FFD60A"/><polygon points="20,100 80,34 140,100" fill="#26222E"/><polygon points="68,48 80,34 92,48 84,46 80,52 76,46" fill="#FBFAF6"/></symbol>
+    <symbol id="scene-cake" viewBox="0 0 160 100"><rect width="160" height="100" fill="#B9C2CC"/><rect x="40" y="52" width="80" height="36" fill="#F2F4F6"/><rect x="40" y="52" width="80" height="10" fill="#5E6672"/><rect x="77" y="30" width="6" height="22" fill="#8C95A1"/><circle cx="80" cy="26" r="5" fill="#3F4652"/></symbol>
+    <symbol id="scene-toast" viewBox="0 0 160 100"><rect width="160" height="100" fill="#A9B4BF"/><rect y="70" width="160" height="30" fill="#3A3F48"/><rect x="62" y="34" width="14" height="40" fill="#F2F4F6"/><rect x="84" y="34" width="14" height="40" fill="#8C95A1"/><circle cx="69" cy="26" r="9" fill="#E3E7EB"/><circle cx="91" cy="26" r="9" fill="#E3E7EB"/></symbol>
+    <symbol id="scene-skate" viewBox="0 0 160 100"><rect width="160" height="100" fill="#8C95A1"/><polygon points="0,100 70,52 160,100" fill="#3A3F48"/><rect x="58" y="40" width="46" height="7" rx="3" fill="#5E6672" transform="rotate(-18 80 44)"/><circle cx="68" cy="56" r="4" fill="#F2F4F6"/><circle cx="96" cy="48" r="4" fill="#F2F4F6"/></symbol>
+    <symbol id="scene-fuji" viewBox="0 0 160 100"><rect width="160" height="100" fill="#C3CAD2"/><circle cx="116" cy="34" r="16" fill="#8C95A1"/><polygon points="20,100 80,34 140,100" fill="#4A515C"/><polygon points="68,48 80,34 92,48 84,46 80,52 76,46" fill="#F2F4F6"/></symbol>
     <symbol id="scene-none" viewBox="0 0 160 100"><rect width="160" height="100" fill="#CBD1D9"/><path d="M60 50 H100 M80 30 V70" stroke="#4A4655" stroke-width="6" stroke-linecap="round" transform="rotate(45 80 50)"/></symbol>
   </defs>
 </svg>
@@ -32,8 +32,8 @@
     <div class="drop" id="drop">
       <svg class="i" aria-hidden="true"><use href="#i-drop"/></svg>
       <div><strong>Drop video links or a playlist here</strong><small>Or paste a link below.</small></div>
-      <form class="paste" id="paste">
-        <input class="field" id="link" type="url" placeholder="https://" aria-label="Video or playlist link" autocomplete="off" spellcheck="false">
+      <form class="paste" id="paste" novalidate>
+        <input class="field" id="link" type="text" inputmode="url" placeholder="https://" aria-label="Video or playlist link" autocomplete="off" spellcheck="false">
         <button class="btn" type="submit">Add</button>
       </form>
     </div>
@@ -85,10 +85,10 @@
           <div class="row2">
             <label class="time">Start<input value="1:12" inputmode="decimal"></label><span class="arrow">to</span>
             <label class="time">Stop<input value="1:19" inputmode="decimal" placeholder="end"></label>
-            <div class="state"><button class="stamp done" type="button" aria-expanded="true" aria-label="Done. Close the preview">Done</button><p class="files">GIF + MP4</p></div>
+            <div class="state"><button class="stamp done" type="button" aria-expanded="true" aria-controls="preview-s1" aria-label="Done. Close the preview">Done</button><p class="files">GIF + MP4</p></div>
           </div>
         </div>
-        <div class="inline-preview">
+        <div class="inline-preview" id="preview-s1" role="region" aria-label="Preview">
           <div class="player"><svg viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#scene-cake"/></svg><span class="badge">GIF</span><span class="loop">0:07 loop</span></div>
           <div class="info">
             <div class="fmt-tabs" role="group" aria-label="Format"><button class="chip" type="button" aria-pressed="true">GIF</button><button class="chip" type="button" aria-pressed="false">MP4</button></div>
@@ -239,8 +239,9 @@
 </section>
 
 <script>
-  // Outside the app (a plain browser), fake the Go side. In the app window.go exists.
-  if (!window.go) document.head.append(Object.assign(document.createElement("script"), { src: "dev-stub.js" }));
+  // Outside the app (a plain browser), fake the Go side, loaded synchronously so
+  // later scripts see window.go. In the app window.go exists and nothing is fetched.
+  if (!window.go) document.write('<script src="dev-stub.js"><\/script>');
 </script>
 </body>
 </html>

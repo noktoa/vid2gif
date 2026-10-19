@@ -11,6 +11,33 @@
         ],
         "createdAt": "2026-10-19T04:02:13.258Z",
         "reason": "builder's call: findings are the window frame, custom caption buttons and the video player frame in a throwaway mock, meant to sit flush; not confirmed by the user"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "cmd/vid2gif-app/frontend/index.html"
+        ],
+        "createdAt": "2026-10-19T13:05:43.063Z",
+        "reason": "builder's call: the only finding is .player, the preview media frame, which is meant to sit flush (same call as the mock); not confirmed by the user"
+      },
+      {
+        "rule": "marquee",
+        "value": "*",
+        "files": [
+          "cmd/vid2gif-app/frontend/index.html"
+        ],
+        "createdAt": "2026-10-19T13:05:43.197Z",
+        "reason": "builder's call: the only finding is the indeterminate progress fill sweep that the spec requires for clips of unknown length (not scrolling content); replaced by a static stripe under prefers-reduced-motion; not confirmed by the user"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "cmd/vid2gif-app/frontend/styles.css"
+        ],
+        "createdAt": "2026-10-19T13:05:43.330Z",
+        "reason": "builder's call: findings are the full-height ink divider of the counter column and the ink leading edges of the progress fill, not coloured accent stripes on cards; not confirmed by the user"
       }
     ]
   }
