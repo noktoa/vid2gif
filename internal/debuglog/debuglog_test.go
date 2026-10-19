@@ -205,3 +205,34 @@ func TestConcurrentPrintf(t *testing.T) {
 		t.Error("final line missing")
 	}
 }
+
+func TestRedactPathStyleSignedParams(t *testing.T) {
+	in := "fetch https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/1790000000/ip/203.0.113.9/id/ABC/sig/AAAsecretSig/file/index.m3u8 ok"
+	got := Redact(in)
+	for _, bad := range []string{"1790000000", "203.0.113.9", "AAAsecretSig"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("%q still in %q", bad, got)
+		}
+	}
+	want := "fetch https://manifest.googlevideo.com/api/manifest/hls_playlist/id/ABC/file/index.m3u8 ok"
+	if got != want {
+		t.Errorf("got %q; want %q", got, want)
+	}
+	if got := Redact("https://h.example/a/IP/9.9.9.9/b"); got != "https://h.example/a/b" {
+		t.Errorf("case-insensitive key: got %q", got)
+	}
+}
+
+func TestRedactUserinfo(t *testing.T) {
+	cases := map[string]string{
+		"https://user:pass@host.example/x?y=1":              "https://host.example/x",
+		"http://tok@host.example/x":                         "http://host.example/x",
+		"https://user:pass@www.youtube.com/watch?v=abc&z=1": "https://www.youtube.com/watch?v=abc",
+	}
+	for in, want := range cases {
+		got := Redact(in)
+		if got != want || strings.Contains(got, "user:pass") {
+			t.Errorf("Redact(%q) = %q; want %q", in, got, want)
+		}
+	}
+}

@@ -102,11 +102,15 @@ func prune(dir string) {
 var (
 	urlRe   = regexp.MustCompile(`https?://[^\s"'<>]+`)
 	paramRe = regexp.MustCompile(`\b(?:ip|expire|sig|lsig|signature)=[^&\s"']*&?`)
+	// HLS manifests carry the same signing values as /key/value path segments.
+	pathParamRe = regexp.MustCompile(`(?i)/(?:ip|expire|sig|lsig|signature)/[^/?#\s]*`)
+	userinfoRe  = regexp.MustCompile(`^(https?://)[^/?#@\s]*@`)
 )
 
 // Redact strips the query from every http(s) URL, except that YouTube page
-// links keep v= and list= so a log still says which video failed. Signing
-// parameters (ip, expire, sig...) are removed wherever they appear.
+// links keep v= and list= so a log still says which video failed. Userinfo
+// (user:pass@) and signing parameters (ip, expire, sig...) are removed, as
+// key=value anywhere and as /key/value path segments inside URLs.
 func Redact(s string) string {
 	s = urlRe.ReplaceAllStringFunc(s, redactURL)
 	return paramRe.ReplaceAllString(s, "")
@@ -115,6 +119,8 @@ func Redact(s string) string {
 func redactURL(u string) string {
 	u, _, _ = strings.Cut(u, "#")
 	base, query, hasQuery := strings.Cut(u, "?")
+	base = userinfoRe.ReplaceAllString(base, "$1")
+	base = pathParamRe.ReplaceAllString(base, "")
 	if !hasQuery || !isYouTube(base) {
 		return base
 	}
