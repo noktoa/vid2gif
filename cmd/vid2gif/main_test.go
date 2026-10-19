@@ -113,25 +113,6 @@ func TestRealMainExitCodes(t *testing.T) {
 	}
 }
 
-func TestBinDir(t *testing.T) {
-	base := t.TempDir()
-	custom := t.TempDir()
-	t.Setenv("VID2GIF_BIN", "")
-	if got, want := binDir(base), filepath.Join(base, "bin"); got != want {
-		t.Errorf("unset: binDir = %q; want %q", got, want)
-	}
-	t.Setenv("VID2GIF_BIN", custom)
-	if got := binDir(base); got != custom {
-		t.Errorf("absolute: binDir = %q; want %q", got, custom)
-	}
-	// relative paths start from the folder that holds deps.json, so
-	// VID2GIF_BIN=bin is exactly the default
-	t.Setenv("VID2GIF_BIN", "tools")
-	if got, want := binDir(base), filepath.Join(base, "tools"); got != want {
-		t.Errorf("relative: binDir = %q; want %q", got, want)
-	}
-}
-
 func TestLoadEnv(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, ".env"), []byte("# comment\nVID2GIF_BIN=from-dotenv\n"), 0o644)

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -117,18 +116,6 @@ func baseDir() string {
 	return wd
 }
 
-// binDir is where the pinned tools live: $VID2GIF_BIN if set, otherwise bin/
-// next to deps.json. A relative VID2GIF_BIN starts from the folder that holds
-// deps.json, so VID2GIF_BIN=bin is exactly the default. Used by both
-// `deps install` and `clip`.
-func binDir(base string) string {
-	d := cmp.Or(os.Getenv("VID2GIF_BIN"), "bin")
-	if filepath.IsAbs(d) {
-		return d
-	}
-	return filepath.Join(base, d)
-}
-
 // loadEnv reads an optional .env file next to deps.json. Variables already
 // set in the real environment win, and a missing file is fine.
 func loadEnv(base string) {
@@ -141,7 +128,7 @@ func runDepsInstall(base string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
-	if err := deps.InstallAll(d, binDir(base), stdout); err != nil {
+	if err := deps.InstallAll(d, deps.BinDir(base, os.Getenv), stdout); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
@@ -166,7 +153,7 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	r := deps.NewResolver(binDir(base))
+	r := deps.NewResolver(deps.BinDir(base, os.Getenv))
 	// YouTube extraction needs deno, so it is required unless --no-pin, where
 	// a missing deno just leaves yt-dlp on its own defaults.
 	var paths [3]string

@@ -30,9 +30,26 @@ var httpClient = &http.Client{Transport: &http.Transport{
 	ResponseHeaderTimeout: 30 * time.Second,
 }}
 
+// countingReader reports the bytes read so far after every Read.
+type countingReader struct {
+	r           io.Reader
+	done, total int64
+	on          func(done, total int64)
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.done += int64(n)
+	if n > 0 {
+		c.on(c.done, c.total)
+	}
+	return n, err
+}
+
 // downloadVerified streams url to dest while hashing it. dest is removed on
-// any failure, including a SHA-256 mismatch.
-func downloadVerified(url, wantSHA, dest string) error {
+// any failure, including a SHA-256 mismatch. onProgress (may be nil) gets the
+// bytes so far and the Content-Length (-1 if unknown).
+func downloadVerified(url, wantSHA, dest string, onProgress func(done, total int64)) error {
 	resp, err := httpClient.Get(url)
 	if err != nil {
 		return err
@@ -46,7 +63,11 @@ func downloadVerified(url, wantSHA, dest string) error {
 		return err
 	}
 	h := sha256.New()
-	_, err = io.Copy(io.MultiWriter(f, h), resp.Body)
+	var body io.Reader = resp.Body
+	if onProgress != nil {
+		body = &countingReader{r: resp.Body, total: resp.ContentLength, on: onProgress}
+	}
+	_, err = io.Copy(io.MultiWriter(f, h), body)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -132,8 +153,18 @@ func extractBinary(archivePath, kind, wantBase, dest string) error {
 
 // InstallAll installs every pinned tool into binDir, in name order.
 func InstallAll(pins Pins, binDir string, log io.Writer) error {
+	return InstallAllProgress(pins, binDir, log, nil)
+}
+
+// InstallAllProgress is InstallAll plus download progress: onProgress (may be
+// nil) gets the tool name, bytes so far and total (-1 if unknown).
+func InstallAllProgress(pins Pins, binDir string, log io.Writer, onProgress func(tool string, done, total int64)) error {
 	for _, name := range slices.Sorted(maps.Keys(pins)) {
-		if err := Install(name, pins[name], binDir, log); err != nil {
+		var p func(done, total int64)
+		if onProgress != nil {
+			p = func(done, total int64) { onProgress(name, done, total) }
+		}
+		if err := install(name, pins[name], binDir, log, p); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 	}
@@ -143,6 +174,10 @@ func InstallAll(pins Pins, binDir string, log io.Writer) error {
 // Install makes binDir/<name> match the pin: no-op if it already does,
 // otherwise download, verify, extract and re-check the version.
 func Install(name string, t Tool, binDir string, log io.Writer) error {
+	return install(name, t, binDir, log, nil)
+}
+
+func install(name string, t Tool, binDir string, log io.Writer, onProgress func(done, total int64)) error {
 	a, err := t.AssetFor(platformKey())
 	if err != nil {
 		return err
@@ -162,7 +197,7 @@ func Install(name string, t Tool, binDir string, log io.Writer) error {
 	stage := dest + ".new"
 	defer os.Remove(stage)
 	if a.Archive == "none" {
-		if err := downloadVerified(a.URL, a.SHA256, stage); err != nil {
+		if err := downloadVerified(a.URL, a.SHA256, stage, onProgress); err != nil {
 			return err
 		}
 		if err := os.Chmod(stage, 0o755); err != nil {
@@ -170,7 +205,7 @@ func Install(name string, t Tool, binDir string, log io.Writer) error {
 		}
 	} else {
 		tmp := filepath.Join(binDir, "."+name+".download")
-		if err := downloadVerified(a.URL, a.SHA256, tmp); err != nil {
+		if err := downloadVerified(a.URL, a.SHA256, tmp, onProgress); err != nil {
 			return err
 		}
 		defer os.Remove(tmp)

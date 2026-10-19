@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -29,7 +30,7 @@ func serve(t *testing.T, body []byte) string {
 func TestDownloadVerifiedOK(t *testing.T) {
 	body := []byte("hello binary")
 	dest := filepath.Join(t.TempDir(), "x")
-	if err := downloadVerified(serve(t, body), sha(body), dest); err != nil {
+	if err := downloadVerified(serve(t, body), sha(body), dest, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(dest)
@@ -40,7 +41,7 @@ func TestDownloadVerifiedOK(t *testing.T) {
 
 func TestDownloadVerifiedMismatchDeletesFile(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "x")
-	err := downloadVerified(serve(t, []byte("tampered")), sha([]byte("original")), dest)
+	err := downloadVerified(serve(t, []byte("tampered")), sha([]byte("original")), dest, nil)
 	if err == nil || !strings.Contains(err.Error(), "sha256 mismatch") {
 		t.Errorf("err = %v", err)
 	}
@@ -53,7 +54,7 @@ func TestDownloadVerifiedHTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
 	dest := filepath.Join(t.TempDir(), "x")
-	if err := downloadVerified(srv.URL, "00", dest); err == nil || !strings.Contains(err.Error(), "404") {
+	if err := downloadVerified(srv.URL, "00", dest, nil); err == nil || !strings.Contains(err.Error(), "404") {
 		t.Errorf("err = %v", err)
 	}
 	if _, statErr := os.Stat(dest); statErr == nil {
@@ -155,5 +156,59 @@ func TestExtractBinaryZipRootLevel(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(dest); string(got) != "deno binary" {
 		t.Errorf("extracted %q", got)
+	}
+}
+
+func TestDownloadVerifiedReportsProgress(t *testing.T) {
+	body := bytes.Repeat([]byte("x"), 200_000)
+	var lastDone, lastTotal int64
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.Write(body)
+	}))
+	defer srv.Close()
+	err := downloadVerified(srv.URL, sha(body), filepath.Join(t.TempDir(), "x"), func(done, total int64) {
+		calls++
+		lastDone, lastTotal = done, total
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls == 0 || lastDone != int64(len(body)) || lastTotal != int64(len(body)) {
+		t.Errorf("calls=%d last done=%d total=%d; want done=total=%d", calls, lastDone, lastTotal, len(body))
+	}
+}
+
+func TestInstallAllProgressNamesTool(t *testing.T) {
+	body := []byte("not a real binary")
+	pins := Pins{"yt-dlp": {Version: "1", Platforms: map[string]Asset{
+		platformKey(): {URL: serve(t, body), SHA256: sha(body), Archive: "none"},
+	}}}
+	var tools []string
+	// The version check fails on the fake binary, which is fine: only the
+	// progress reporting is under test.
+	InstallAllProgress(pins, t.TempDir(), io.Discard, func(tool string, done, total int64) {
+		tools = append(tools, tool)
+	})
+	if len(tools) == 0 || tools[0] != "yt-dlp" {
+		t.Errorf("progress tools = %v; want yt-dlp", tools)
+	}
+}
+
+// Review Focus 4: an unreachable URL is a plain error with nothing left behind.
+func TestInstallOfflineLeavesNoPartialFile(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL
+	srv.Close() // nothing listens here any more
+	binDir := t.TempDir()
+	for _, archive := range []string{"none", "zip"} {
+		tl := Tool{Version: "1", Platforms: map[string]Asset{platformKey(): {URL: url, SHA256: "00", Archive: archive}}}
+		if err := Install("yt-dlp", tl, binDir, io.Discard); err == nil {
+			t.Fatalf("%s: expected an error for an unreachable URL", archive)
+		}
+	}
+	if entries, _ := os.ReadDir(binDir); len(entries) != 0 {
+		t.Errorf("files left in bin: %v", entries)
 	}
 }

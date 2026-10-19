@@ -2,10 +2,12 @@
 package deps
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -28,11 +30,30 @@ func Load(path string) (Pins, error) {
 	if err != nil {
 		return nil, err
 	}
-	var d Pins
-	if err := json.Unmarshal(b, &d); err != nil {
+	d, err := Parse(b)
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return d, nil
+}
+
+// Parse reads deps.json content, e.g. the embedded copy.
+func Parse(b []byte) (Pins, error) {
+	var d Pins
+	if err := json.Unmarshal(b, &d); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// BinDir is where the pinned tools live: $VID2GIF_BIN if set (a relative value
+// starts from base), otherwise base/bin. getenv is os.Getenv in real use.
+func BinDir(base string, getenv func(string) string) string {
+	d := cmp.Or(getenv("VID2GIF_BIN"), "bin")
+	if filepath.IsAbs(d) {
+		return d
+	}
+	return filepath.Join(base, d)
 }
 
 func platformKey() string { return runtime.GOOS + "-" + runtime.GOARCH }
