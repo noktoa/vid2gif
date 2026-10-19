@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"vid2gif/internal/encode"
 )
@@ -46,7 +47,7 @@ func Load(path string) Settings {
 	if !slices.Contains(Themes, s.Theme) {
 		s.Theme = d.Theme
 	}
-	if s.OutDir == "" {
+	if !ValidOutDir(s.OutDir, filepath.Dir(path)) {
 		s.OutDir = d.OutDir
 	}
 	if len(s.Formats) == 0 {
@@ -56,6 +57,37 @@ func Load(path string) Settings {
 		s.Quality = d.Quality
 	}
 	return s
+}
+
+// LocalAbs reports whether p is an absolute path on a local drive: not
+// relative or drive-relative (C:x), and not UNC or a device path (\\host,
+// //host, \\?\, \\.\), which Windows would reach over the network.
+// It only looks at the text, never the disk.
+func LocalAbs(p string) bool {
+	if strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, `//`) {
+		return false
+	}
+	p = filepath.Clean(p)
+	return filepath.IsAbs(p) && !strings.HasPrefix(p, `\\`)
+}
+
+// ValidOutDir reports whether dir may be the output folder: a local absolute
+// path, not a drive or filesystem root, and not inside dataRoot (the app's
+// data folder, which uninstall deletes). Lexical; case-insensitive on Windows.
+func ValidOutDir(dir, dataRoot string) bool {
+	if strings.TrimSpace(dir) == "" || !LocalAbs(dir) {
+		return false
+	}
+	dir = filepath.Clean(dir)
+	if filepath.Dir(dir) == dir {
+		return false
+	}
+	if dataRoot == "" {
+		return true
+	}
+	rel, err := filepath.Rel(filepath.Clean(dataRoot), dir)
+	inside := err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return !inside
 }
 
 // Save writes via a temp file and rename so a crash never leaves a half-written file.
