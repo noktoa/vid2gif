@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"vid2gif/internal/proc"
 )
 
 type Preset struct {
@@ -111,6 +113,7 @@ func (w *progressWriter) Write(b []byte) (int, error) {
 func Runner(ffmpeg string) func(ctx context.Context, in, out string, o Opts) error {
 	return func(ctx context.Context, in, out string, o Opts) error {
 		cmd := exec.CommandContext(ctx, ffmpeg, Args(in, out, o)...)
+		proc.Hide(cmd)
 		var b bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &b, &b // like CombinedOutput
 		if o.OnProgress != nil {

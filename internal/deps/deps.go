@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"vid2gif/internal/proc"
 )
 
 type Asset struct {
@@ -96,6 +98,8 @@ func runVersion(path, name string) (string, error) {
 	if name == "ffmpeg" {
 		flag = "-version"
 	}
-	out, err := exec.Command(path, flag).Output()
+	cmd := exec.Command(path, flag)
+	proc.Hide(cmd)
+	out, err := cmd.Output()
 	return string(out), err
 }

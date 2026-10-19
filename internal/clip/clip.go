@@ -20,6 +20,7 @@ import (
 	"vid2gif/internal/debuglog"
 	"vid2gif/internal/encode"
 	"vid2gif/internal/naming"
+	"vid2gif/internal/proc"
 )
 
 // Pipeline stages reported through Opts.OnEvent.
@@ -411,12 +412,17 @@ func teeStderr(ctx context.Context, prefix string, next io.Writer, each func(lin
 // ponytail: tree kill is Windows-only (taskkill /T); on Unix only the direct child dies, add a process group if orphans show up.
 func runTool(cmd *exec.Cmd) error {
 	cmd.Cancel = func() error {
-		if runtime.GOOS == "windows" && exec.Command(taskkillPath(), "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run() == nil {
-			return nil
+		if runtime.GOOS == "windows" {
+			kill := exec.Command(taskkillPath(), "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid))
+			proc.Hide(kill)
+			if kill.Run() == nil {
+				return nil
+			}
 		}
 		return cmd.Process.Kill()
 	}
 	cmd.WaitDelay = 5 * time.Second // do not hang on a pipe an orphan still holds
+	proc.Hide(cmd)
 	return cmd.Run()
 }
 

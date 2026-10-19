@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"vid2gif/internal/clip"
+	"vid2gif/internal/proc"
 	"vid2gif/internal/debuglog"
 )
 
@@ -117,6 +118,7 @@ func (l Looker) Lookup(ctx context.Context, link string) (source string, vids []
 	args := lookupArgs(link, l.Deno)
 	l.Log.Printf("lookup: %s %s", l.YtDlp, strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, l.YtDlp, args...)
+	proc.Hide(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
