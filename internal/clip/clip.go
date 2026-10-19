@@ -9,10 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"vid2gif/internal/debuglog"
@@ -113,18 +115,38 @@ func orDefault(s, def string) string {
 }
 
 func (p Pipeline) run(ctx context.Context, o Opts) error {
-	emit := func(e Event) {
-		p.log.Printf("event: stage=%s pct=%.2f path=%s size=%d err=%v", e.Stage, e.Pct, e.Path, e.Size, e.Err)
-		if o.OnEvent != nil {
+	// Tool output goroutines report progress while this one emits, so OnEvent
+	// calls go through one mutex, and none happen once run has returned.
+	var mu sync.Mutex
+	closed := false
+	defer func() { mu.Lock(); closed = true; mu.Unlock() }()
+	send := func(e Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		if o.OnEvent != nil && !closed {
 			o.OnEvent(e)
 		}
 	}
-	// tick reports progress inside a stage; not logged, it would flood the file.
+	emit := func(e Event) {
+		p.log.Printf("event: stage=%s pct=%.2f path=%s size=%d err=%v", e.Stage, e.Pct, e.Path, e.Size, e.Err)
+		send(e)
+	}
+	// tick reports progress inside a stage; only its first report is logged,
+	// the rest would flood the file. A negative f is "unknown" and stays -1;
+	// known values never go down.
 	tick := func(stage, path string) func(float64) {
+		last, first := -1.0, true
 		return func(f float64) {
-			if o.OnEvent != nil {
-				o.OnEvent(Event{Stage: stage, Pct: min(max(f, 0), 1), Path: path})
+			if f >= 0 {
+				last = max(last, min(f, 1))
 			}
+			e := Event{Stage: stage, Pct: last, Path: path}
+			if first {
+				first = false
+				emit(e)
+				return
+			}
+			send(e)
 		}
 	}
 	fail := func(path string, err error) error {
@@ -165,11 +187,7 @@ func (p Pipeline) run(ctx context.Context, o Opts) error {
 
 	wantAudio := slices.ContainsFunc(todo, func(f string) bool { return f == "mp4" || f == "mov" })
 	p.log.Printf("run: %s %s", orDefault(p.ytdlp, "yt-dlp"), strings.Join(ytdlpDownloadArgs(o, p.ffmpeg, p.deno, tmp, wantAudio), " "))
-	dlPct := 0.0
-	if o.DurationSec <= 0 {
-		dlPct = -1
-	}
-	emit(Event{Stage: StageDownload, Pct: dlPct})
+	// No StageDownload event yet: the stage starts at the first progress report.
 	clip, err := p.download(ctx, o, tmp, wantAudio, tick(StageDownload, ""))
 	if err != nil {
 		return fail("", cancelErr(ctx, err))
@@ -182,10 +200,20 @@ func (p Pipeline) run(ctx context.Context, o Opts) error {
 		}
 		final := naming.OutPath(o.OutDir, name, f)
 		part := filepath.Join(tmp, name+"."+f)
-		eo := encode.Opts{Format: f, Preset: encode.Presets[o.Quality]}
+		eo := encode.Opts{Format: f, Preset: encode.Presets[o.Quality], DurationSec: o.DurationSec}
+		// Only mp4/mov encodes can be measured; gif and webp stay indeterminate.
+		var progress func(float64)
+		startPct := -1.0
+		if f == "mp4" || f == "mov" {
+			progress = tick(StageEncode, final)
+			eo.OnProgress = progress
+			if o.DurationSec > 0 {
+				startPct = 0
+			}
+		}
 		p.log.Printf("run: %s %s", orDefault(p.ffmpeg, "ffmpeg"), strings.Join(encode.Args(clip, part, eo), " "))
-		emit(Event{Stage: StageEncode, Pct: 0, Path: final})
-		if err := p.encode(ctx, clip, part, eo, tick(StageEncode, final)); err != nil {
+		emit(Event{Stage: StageEncode, Pct: startPct, Path: final})
+		if err := p.encode(ctx, clip, part, eo, progress); err != nil {
 			err = cancelErr(ctx, err)
 			fmt.Fprintf(p.out, "failed %s: %v\n", final, err)
 			emit(Event{Stage: StageFailed, Pct: -1, Path: final, Err: err})
@@ -278,42 +306,90 @@ func withHint(err error, hint string) error {
 	return fmt.Errorf("%w\n%s", err, hint)
 }
 
-// lineWriter logs each line written to it as "<prefix>: line", splitting on
-// \n or \r (yt-dlp redraws progress with \r). Close flushes a trailing line.
+// SplitProgress is a bufio.SplitFunc that splits on \r or \n: ffmpeg redraws
+// its stats line with \r, so a plain line scanner would see one endless line.
+func SplitProgress(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if i := bytes.IndexAny(data, "\r\n"); i >= 0 {
+		return i + 1, data[:i], nil
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
+}
+
+var ffmpegTime = regexp.MustCompile(`\btime=(\d+):(\d\d):(\d\d(?:\.\d+)?)`)
+
+// ParseFFmpegTime reads the time=HH:MM:SS.xx of an ffmpeg stats line.
+// time=N/A and lines without it are not ok.
+func ParseFFmpegTime(line string) (seconds float64, ok bool) {
+	m := ffmpegTime.FindStringSubmatch(line)
+	if m == nil {
+		return 0, false
+	}
+	h, _ := strconv.Atoi(m[1])
+	mn, _ := strconv.Atoi(m[2])
+	sec, _ := strconv.ParseFloat(m[3], 64)
+	return float64(h*3600+mn*60) + sec, true
+}
+
+// downloadProgress turns yt-dlp's stderr lines into download fractions for
+// progress: seconds of the clip over durationSec, or -1 when that is unknown.
+func downloadProgress(durationSec float64, progress func(frac float64)) func(line string) {
+	return func(line string) {
+		sec, ok := ParseFFmpegTime(line)
+		if !ok {
+			return
+		}
+		if durationSec <= 0 {
+			progress(-1)
+			return
+		}
+		progress(min(sec/durationSec, 1))
+	}
+}
+
+// lineWriter logs each line written to it as "<prefix>: line" and/or hands it
+// to each, splitting like SplitProgress. Close flushes a trailing line.
 type lineWriter struct {
 	log    *debuglog.Log
 	prefix string
+	each   func(line string) // nil = log only
 	buf    []byte
 }
 
 func (w *lineWriter) Write(b []byte) (int, error) {
 	w.buf = append(w.buf, b...)
 	for {
-		i := bytes.IndexAny(w.buf, "\r\n")
-		if i < 0 {
+		adv, tok, _ := SplitProgress(w.buf, false)
+		if adv == 0 {
 			return len(b), nil
 		}
-		w.flush(w.buf[:i])
-		w.buf = w.buf[i+1:]
+		w.flush(tok)
+		w.buf = w.buf[adv:]
 	}
 }
 
 func (w *lineWriter) flush(line []byte) {
 	if s := strings.TrimSpace(string(line)); s != "" {
 		w.log.Printf("%s: %s", w.prefix, s)
+		if w.each != nil {
+			w.each(s)
+		}
 	}
 }
 
 func (w *lineWriter) Close() { w.flush(w.buf); w.buf = nil }
 
 // teeStderr returns where a tool's stderr should go: next alone when ctx has
-// no log, else next plus a line logger. The returned func flushes the logger.
-func teeStderr(ctx context.Context, prefix string, next io.Writer) (io.Writer, func()) {
+// no log and each is nil, else next plus a line logger / each(line) callback.
+// next always gets the raw bytes. The returned func flushes the last line.
+func teeStderr(ctx context.Context, prefix string, next io.Writer, each func(line string)) (io.Writer, func()) {
 	l, _ := ctx.Value(logKey{}).(*debuglog.Log)
-	if l == nil {
+	if l == nil && each == nil {
 		return next, func() {}
 	}
-	lw := &lineWriter{log: l, prefix: prefix}
+	lw := &lineWriter{log: l, prefix: prefix, each: each}
 	return io.MultiWriter(next, lw), lw.Close
 }
 
@@ -340,7 +416,7 @@ func New(ytdlp, ffmpeg, deno, hint string, out io.Writer) Pipeline {
 			var stdout bytes.Buffer
 			var done func()
 			cmd.Stdout = &stdout
-			cmd.Stderr, done = teeStderr(ctx, "yt-dlp", os.Stderr)
+			cmd.Stderr, done = teeStderr(ctx, "yt-dlp", os.Stderr, nil)
 			err := runTool(cmd)
 			done()
 			if err != nil {
@@ -349,11 +425,15 @@ func New(ytdlp, ffmpeg, deno, hint string, out io.Writer) Pipeline {
 			title, _, _ := strings.Cut(strings.TrimSpace(stdout.String()), "\n")
 			return strings.TrimSpace(title), nil
 		},
-		download: func(ctx context.Context, o Opts, tmpDir string, wantAudio bool, _ func(float64)) (string, error) {
+		download: func(ctx context.Context, o Opts, tmpDir string, wantAudio bool, progress func(float64)) (string, error) {
 			cmd := exec.CommandContext(ctx, ytdlp, ytdlpDownloadArgs(o, ffmpeg, deno, tmpDir, wantAudio)...)
 			var done func()
+			var each func(string)
+			if progress != nil {
+				each = downloadProgress(o.DurationSec, progress)
+			}
 			cmd.Stdout = os.Stdout
-			cmd.Stderr, done = teeStderr(ctx, "yt-dlp", os.Stderr)
+			cmd.Stderr, done = teeStderr(ctx, "yt-dlp", os.Stderr, each)
 			err := runTool(cmd)
 			done()
 			if err != nil {
@@ -361,11 +441,17 @@ func New(ytdlp, ffmpeg, deno, hint string, out io.Writer) Pipeline {
 			}
 			return pickClipFile(tmpDir)
 		},
-		encode: func(ctx context.Context, in, out string, eo encode.Opts, _ func(float64)) error {
+		encode: func(ctx context.Context, in, out string, eo encode.Opts, progress func(float64)) error {
+			if progress != nil {
+				eo.OnProgress = progress
+			}
 			cmd := exec.CommandContext(ctx, ffmpeg, encode.Args(in, out, eo)...)
+			if progress != nil {
+				cmd.Stdout = encode.NewProgressWriter(eo.DurationSec, progress) // -progress pipe:1
+			}
 			var buf bytes.Buffer // ffmpeg's own output goes into the error, as encode.Runner does
 			var done func()
-			cmd.Stderr, done = teeStderr(ctx, "ffmpeg", &buf)
+			cmd.Stderr, done = teeStderr(ctx, "ffmpeg", &buf, nil)
 			err := runTool(cmd)
 			done()
 			if err != nil {

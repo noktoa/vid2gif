@@ -2,8 +2,10 @@
 package encode
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -25,6 +27,12 @@ var Presets = map[string]Preset{
 type Opts struct {
 	Format string
 	Preset Preset
+
+	// OnProgress, if set, makes ffmpeg report progress on stdout (read it with
+	// NewProgressWriter). Only worth setting for mp4/mov: gif and webp encodes
+	// report nothing usable. DurationSec is the clip length.
+	OnProgress  func(frac float64)
+	DurationSec float64
 }
 
 // Args builds the ffmpeg argv (without the program name) to encode the
@@ -48,16 +56,64 @@ func Args(in, out string, o Opts) []string {
 			"-preset", "medium", "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
 			"-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart")
 	}
+	if o.OnProgress != nil {
+		args = append(args, "-progress", "pipe:1", "-nostats")
+	}
 	return append(args, out)
+}
+
+// ParseProgress reads one line of ffmpeg's -progress output. It is ok only
+// for out_time_us=<n> with a known duration; the fraction is clamped to 0..1.
+func ParseProgress(line string, durationSec float64) (frac float64, ok bool) {
+	v, found := strings.CutPrefix(strings.TrimSpace(line), "out_time_us=")
+	us, err := strconv.ParseInt(v, 10, 64)
+	if !found || err != nil || durationSec <= 0 {
+		return 0, false
+	}
+	return min(max(float64(us)/1e6/durationSec, 0), 1), true
+}
+
+// NewProgressWriter returns a writer for ffmpeg's -progress stdout that calls
+// fn with the clip fraction, never lower than the one before (ffmpeg steps
+// back about 1 s once per MP4 encode). fn runs on the goroutine that writes.
+func NewProgressWriter(durationSec float64, fn func(frac float64)) io.Writer {
+	return &progressWriter{dur: durationSec, fn: fn}
+}
+
+type progressWriter struct {
+	dur  float64
+	fn   func(float64)
+	buf  []byte
+	last float64
+}
+
+func (w *progressWriter) Write(b []byte) (int, error) {
+	w.buf = append(w.buf, b...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			return len(b), nil
+		}
+		if f, ok := ParseProgress(string(w.buf[:i]), w.dur); ok {
+			w.last = max(w.last, f)
+			w.fn(w.last)
+		}
+		w.buf = w.buf[i+1:]
+	}
 }
 
 // Runner returns a function that encodes in to out with the given ffmpeg
 // binary; ffmpeg's own output is included in the error when it fails.
 func Runner(ffmpeg string) func(ctx context.Context, in, out string, o Opts) error {
 	return func(ctx context.Context, in, out string, o Opts) error {
-		b, err := exec.CommandContext(ctx, ffmpeg, Args(in, out, o)...).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("ffmpeg: %w\n%s", err, strings.TrimSpace(string(b)))
+		cmd := exec.CommandContext(ctx, ffmpeg, Args(in, out, o)...)
+		var b bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &b, &b // like CombinedOutput
+		if o.OnProgress != nil {
+			cmd.Stdout = NewProgressWriter(o.DurationSec, o.OnProgress)
+		}
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("ffmpeg: %w\n%s", err, strings.TrimSpace(b.String()))
 		}
 		return nil
 	}

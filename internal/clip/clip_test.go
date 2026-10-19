@@ -1,6 +1,7 @@
 package clip
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -8,7 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,20 +24,28 @@ type fakeState struct {
 	downloads int
 	wantAudio bool
 	encoded   []string
+	progress  []bool // per encode: was a progress callback given
 }
 
 func fakePipeline(out io.Writer) (Pipeline, *fakeState) {
 	st := &fakeState{}
 	return Pipeline{
 		title: func(ctx context.Context, url string) (string, error) { return "My: Video", nil },
-		download: func(ctx context.Context, o Opts, tmpDir string, wantAudio bool, _ func(float64)) (string, error) {
+		download: func(ctx context.Context, o Opts, tmpDir string, wantAudio bool, pr func(float64)) (string, error) {
 			st.downloads++
+			if pr != nil {
+				pr(0.5)
+			}
 			st.wantAudio = wantAudio
 			p := filepath.Join(tmpDir, "clip.mkv")
 			return p, os.WriteFile(p, []byte("src"), 0o644)
 		},
-		encode: func(ctx context.Context, in, out string, eo encode.Opts, _ func(float64)) error {
+		encode: func(ctx context.Context, in, out string, eo encode.Opts, pr func(float64)) error {
 			st.encoded = append(st.encoded, eo.Format)
+			st.progress = append(st.progress, pr != nil)
+			if pr != nil {
+				pr(0.25)
+			}
 			return os.WriteFile(out, []byte("data-"+eo.Format), 0o644)
 		},
 		out: out,
@@ -603,5 +615,208 @@ func TestRealToolFailureKeepsHint(t *testing.T) {
 	_, err := p.download(context.Background(), Opts{URL: "https://x"}, t.TempDir(), false, nil)
 	if err == nil || errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "exit status 1") || !strings.Contains(err.Error(), "BUMP-THE-PIN") {
 		t.Errorf("err = %v; want yt-dlp exit error with hint", err)
+	}
+}
+
+func TestSplitProgressSplitsOnCR(t *testing.T) {
+	sc := bufio.NewScanner(strings.NewReader("a\rb\nc\r\nd"))
+	sc.Split(SplitProgress)
+	var got []string
+	for sc.Scan() {
+		if sc.Text() != "" {
+			got = append(got, sc.Text())
+		}
+	}
+	if !slices.Equal(got, []string{"a", "b", "c", "d"}) {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestParseFFmpegTimeFixture(t *testing.T) {
+	f, err := os.Open("testdata/ffmpeg-section-stderr.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Split(SplitProgress)
+	var got []float64
+	skippedNA := false
+	for sc.Scan() {
+		sec, ok := ParseFFmpegTime(sc.Text())
+		if !ok {
+			skippedNA = skippedNA || strings.Contains(sc.Text(), "time=N/A")
+			continue
+		}
+		got = append(got, sec)
+	}
+	if len(got) == 0 || got[0] != 0.05 {
+		t.Fatalf("first = %v", got)
+	}
+	// 8.63 is the last stats line; the closing summary line (Lsize=) says 10.00.
+	if n := len(got); n < 2 || got[n-2] != 8.63 || got[n-1] != 10 {
+		t.Errorf("tail = %v", got)
+	}
+	if !skippedNA || !sort.Float64sAreSorted(got) {
+		t.Errorf("time=N/A skipped=%v, sorted=%v", skippedNA, sort.Float64sAreSorted(got))
+	}
+}
+
+func TestParseFFmpegTimeRejects(t *testing.T) {
+	for _, l := range []string{"", "time=N/A bitrate=N/A", "[download] 10%", "elapsed=0:00:01.02", "time=00:00"} {
+		if _, ok := ParseFFmpegTime(l); ok {
+			t.Errorf("%q must not be ok", l)
+		}
+	}
+	if s, ok := ParseFFmpegTime("size= 5KiB time=01:02:03.50 bitrate="); !ok || s != 3723.5 {
+		t.Errorf("got %v, %v", s, ok)
+	}
+}
+
+func TestDownloadFractionUsesDuration(t *testing.T) {
+	var got []float64
+	feed := downloadProgress(10, func(f float64) { got = append(got, f) })
+	feed("frame=3 time=00:00:05.00 bitrate=1")
+	feed("time=N/A")
+	feed("[download] nothing")
+	feed("time=00:00:12.00") // past the end clamps
+	if !slices.Equal(got, []float64{0.5, 1}) {
+		t.Errorf("got %v", got)
+	}
+	got = nil
+	downloadProgress(0, func(f float64) { got = append(got, f) })("time=00:00:05.00")
+	if !slices.Equal(got, []float64{-1}) {
+		t.Errorf("unknown duration: got %v; want [-1]", got)
+	}
+}
+
+func TestRunProgressEvents(t *testing.T) {
+	p, st := fakePipeline(io.Discard)
+	o := baseOpts(t.TempDir(), "gif", "mp4")
+	o.DurationSec = 5
+	evs := collect(&o)
+	if err := p.Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if first := (*evs)[0]; first.Stage != StageFind || first.Pct != -1 {
+		t.Errorf("first = %+v; want find with Pct -1", first)
+	}
+	if second := (*evs)[1]; second.Stage != StageDownload || second.Pct != 0.5 {
+		t.Errorf("second = %+v; want download at the first progress report, not before", second)
+	}
+	for _, e := range *evs {
+		if e.Stage == StageEncode && strings.HasSuffix(e.Path, ".gif") && e.Pct != -1 {
+			t.Errorf("gif encode Pct = %v; want -1", e.Pct)
+		}
+	}
+	// gif is planned first, then mp4
+	if !slices.Equal(st.progress, []bool{false, true}) {
+		t.Errorf("progress callbacks per encode = %v; want only mp4/mov", st.progress)
+	}
+}
+
+func TestRunUnknownDurationIsIndeterminate(t *testing.T) {
+	p, _ := fakePipeline(io.Discard)
+	p.download = func(_ context.Context, _ Opts, tmp string, _ bool, pr func(float64)) (string, error) {
+		pr(-1)
+		path := filepath.Join(tmp, "clip.mkv")
+		return path, os.WriteFile(path, []byte("src"), 0o644)
+	}
+	p.encode = func(_ context.Context, _, out string, _ encode.Opts, _ func(float64)) error {
+		// ffmpeg reports nothing without a duration
+		return os.WriteFile(out, []byte("x"), 0o644)
+	}
+	o := baseOpts(t.TempDir(), "mp4") // DurationSec 0
+	evs := collect(&o)
+	if err := p.Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range *evs {
+		if (e.Stage == StageDownload || e.Stage == StageEncode) && e.Pct != -1 {
+			t.Errorf("%+v; want Pct -1 while the duration is unknown", e)
+		}
+	}
+}
+
+func TestRunProgressNeverGoesBackwards(t *testing.T) {
+	p, _ := fakePipeline(io.Discard)
+	p.download = func(_ context.Context, _ Opts, tmp string, _ bool, pr func(float64)) (string, error) {
+		for _, f := range []float64{0.4, 0.3, 0.6} {
+			pr(f)
+		}
+		path := filepath.Join(tmp, "clip.mkv")
+		return path, os.WriteFile(path, []byte("src"), 0o644)
+	}
+	o := baseOpts(t.TempDir(), "gif")
+	o.DurationSec = 5
+	evs := collect(&o)
+	if err := p.Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	last := -1.0
+	for _, e := range *evs {
+		if e.Stage == StageDownload {
+			if e.Pct < last {
+				t.Errorf("download went back: %v after %v", e.Pct, last)
+			}
+			last = e.Pct
+		}
+	}
+}
+
+// Progress arrives on the tool's output goroutine while Run emits its own
+// events; OnEvent must never run concurrently or after Run returns.
+func TestRunSerializesEventsAndStopsAfterReturn(t *testing.T) {
+	p, _ := fakePipeline(io.Discard)
+	release := make(chan struct{})
+	var wg sync.WaitGroup
+	p.download = func(_ context.Context, _ Opts, tmp string, _ bool, pr func(float64)) (string, error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				pr(float64(i) / 200)
+			}
+			<-release
+			pr(1) // a straggler after Run returned
+		}()
+		path := filepath.Join(tmp, "clip.mkv")
+		return path, os.WriteFile(path, []byte("src"), 0o644)
+	}
+	o := baseOpts(t.TempDir(), "gif")
+	var inside atomic.Int32
+	var after, done atomic.Bool
+	o.OnEvent = func(Event) {
+		if inside.Add(1) != 1 {
+			t.Error("OnEvent called concurrently")
+		}
+		if done.Load() {
+			after.Store(true)
+		}
+		inside.Add(-1)
+	}
+	if err := p.Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	done.Store(true)
+	close(release)
+	wg.Wait()
+	if after.Load() {
+		t.Error("OnEvent called after Run returned")
+	}
+}
+
+func TestTeeStderrScansLinesAndKeepsOutput(t *testing.T) {
+	var next bytes.Buffer
+	var lines []string
+	w, done := teeStderr(context.Background(), "yt-dlp", &next, func(l string) { lines = append(lines, l) })
+	io.WriteString(w, "frame=1 time=00:00:01.00\rframe=2 time=00:00:02")
+	io.WriteString(w, ".00\rtail")
+	done()
+	if next.String() != "frame=1 time=00:00:01.00\rframe=2 time=00:00:02.00\rtail" {
+		t.Errorf("terminal output changed: %q", next.String())
+	}
+	if !slices.Equal(lines, []string{"frame=1 time=00:00:01.00", "frame=2 time=00:00:02.00", "tail"}) {
+		t.Errorf("lines = %q", lines)
 	}
 }
