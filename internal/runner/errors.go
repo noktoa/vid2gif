@@ -19,7 +19,10 @@ var plainErrors = []struct {
 		"Couldn't get this video. It may be private or removed."},
 	{[]string{"unable to extract", "sign in to confirm", "http error 403", "nsig extraction failed"},
 		"This site isn't working with the app right now. An update may fix it."},
-	{[]string{"no such host", "dial tcp", "timeout", "timed out", "network is unreachable"},
+	// Go's net errors, then yt-dlp's (Python) on Windows: see testdata/offline-*.txt.
+	{[]string{"no such host", "dial tcp", "timeout", "timed out", "network is unreachable",
+		"getaddrinfo failed", "failed to resolve", "unable to connect to proxy", "failed to establish a new connection",
+		"could not connect to server", "connection refused", "winerror 10060", "winerror 10061", "winerror 10065"},
 		"Couldn't reach the internet. Check your connection and try again."},
 	{[]string{"permission denied", "access is denied", "no such file or directory", "not a directory"},
 		folderMsg},

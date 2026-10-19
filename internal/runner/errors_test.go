@@ -2,6 +2,9 @@ package runner
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -47,5 +50,34 @@ func TestPlainError(t *testing.T) {
 				t.Errorf("PlainError(%q) leaks %q: %q", c.err, bad, got)
 			}
 		}
+	}
+}
+
+// TestPlainErrorRealOfflineOutput feeds yt-dlp's real Windows stderr (pinned
+// 2026.08.19, captured 2026-10-19): an unresolvable host, and a dead proxy
+// for YouTube (urllib) and Vimeo (curl_cffi).
+func TestPlainErrorRealOfflineOutput(t *testing.T) {
+	const offline = "Couldn't reach the internet. Check your connection and try again."
+	for _, name := range []string{"offline-dns.txt", "offline-proxy-youtube.txt", "offline-proxy-curl.txt"} {
+		b, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := PlainError(fmt.Errorf("yt-dlp: exit status 1\n%s", b), false); got != offline {
+			t.Errorf("%s: PlainError = %q, want the internet message", name, got)
+		}
+	}
+	for _, s := range []string{
+		"[WinError 10060] A connection attempt failed because the connected party did not properly respond",
+		"[WinError 10065] A socket operation was attempted to an unreachable host",
+		"Connection refused",
+	} {
+		if got := PlainError(errors.New("yt-dlp: exit status 1\nERROR: "+s), false); got != offline {
+			t.Errorf("%q: PlainError = %q", s, got)
+		}
+	}
+	// A private video seen through a flaky connection is still private.
+	if got := PlainError(errors.New("ERROR: Private video. getaddrinfo failed"), false); !strings.HasPrefix(got, "Couldn't get this video") {
+		t.Errorf("private lost precedence: %q", got)
 	}
 }
