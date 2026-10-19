@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-19T00:00:00Z",
+  "title": "Design System: vid2gif",
+  "extensions": {
+    "colorMeta": {
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#1E1B24", "tonalRamp": ["#1E1B24", "#4A4655", "#6A6676", "#9A97A5", "#C4C2CB", "#E4E8ED", "#F8FAFC", "#FFFFFF"] },
+      "sticker-yellow": { "role": "primary", "displayName": "Sticker Yellow", "canonical": "#FFD60A", "tonalRamp": ["#5C4C00", "#8F7500", "#C2A000", "#FFD60A", "#FFE04D", "#FFE98A", "#FFF2B8", "#FFF9DF"] },
+      "eye-magenta": { "role": "secondary", "displayName": "Eye Magenta", "canonical": "#E6007E", "tonalRamp": ["#5C0032", "#8F004D", "#C20069", "#E6007E", "#F04DA2", "#F78FC4", "#FBBFDD", "#FDE5F1"] },
+      "stamp-green": { "role": "secondary", "displayName": "Stamp Green", "canonical": "#00805A", "tonalRamp": ["#00281C", "#00402D", "#005C41", "#00805A", "#33A07E", "#80C4AE", "#B8DDD0", "#E0F2EB"] },
+      "alert-red": { "role": "neutral", "displayName": "Alert Red", "canonical": "#C23B22", "tonalRamp": ["#3D1209", "#66200F", "#8F2D18", "#C23B22", "#D36B58", "#E39D90", "#EFC5BD", "#F8E6E2"] },
+      "ground-grey": { "role": "neutral", "displayName": "Cool Grey Ground (default theme)", "canonical": "#E4E8ED", "tonalRamp": ["#3A3F46", "#5B626C", "#7E8590", "#A2A9B3", "#CBD1D9", "#DCE1E8", "#E4E8ED", "#F8FAFC"] },
+      "ground-mint": { "role": "neutral", "displayName": "Mint Ground", "canonical": "#CDEBE4", "tonalRamp": ["#2F4A44", "#4E7A70", "#6FA396", "#9BC7BD", "#B8DDD5", "#CDEBE4", "#E4F5F1", "#F7FCFB"] },
+      "ground-lilac": { "role": "neutral", "displayName": "Lilac Ground", "canonical": "#E4DEF6", "tonalRamp": ["#3D3860", "#625A91", "#8B80BA", "#BDB3DB", "#D4CCEB", "#E4DEF6", "#F1EDFA", "#FBF9FF"] }
+    },
+    "typographyMeta": {
+      "sign": { "displayName": "Sign (Bowlby One)", "purpose": "Make button label only." },
+      "logo": { "displayName": "Logo", "purpose": "Wordmark in the counter and setup card." },
+      "stamp": { "displayName": "Stamp", "purpose": "DONE, failure and waiting rubber stamps." },
+      "title": { "displayName": "Title", "purpose": "Slip and shelf titles." },
+      "time": { "displayName": "Time", "purpose": "Start and Stop boxes, tabular figures." }
+    },
+    "shadows": [
+      { "name": "make-rest", "value": "0 8px 14px -8px rgba(30, 27, 36, .5)", "purpose": "Soft lift under Make; 0 3px 8px -6px on press; 0 -6px 14px -8px when fixed to bottom." },
+      { "name": "popover", "value": "0 14px 30px -12px rgba(30, 27, 36, .45), 0 2px 6px rgba(30, 27, 36, .12)", "purpose": "Settings popover." },
+      { "name": "eye-ring", "value": "0 0 0 3px #E6007E", "purpose": "Ring on the one slip under the eye (a ring, not a depth shadow)." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(.16, 1, .3, 1)", "purpose": "Stamp slam-in (.5s, scale 1.9 to 1, none under reduced motion), progress sweep (1.6s), switch thumb." },
+      { "name": "pulse", "value": "1.4s ease-in-out infinite", "purpose": "Unmeasured progress stage; static yellow/ink stripes under reduced motion." },
+      { "name": "progress-fill", "value": "transform .2s linear", "purpose": "Measured progress fill." }
+    ],
+    "breakpoints": [
+      { "name": "medium", "value": "900px" },
+      { "name": "narrow", "value": "640px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Make Button",
+      "kind": "button",
+      "refersTo": "button-make",
+      "description": "The one yellow primary action.",
+      "html": "<button class=\"ds-make\">Make clips</button>",
+      "css": ".ds-make { font: 400 18px/1 'Bowlby One','Arial Black',sans-serif; letter-spacing: .02em; min-height: 50px; padding: 13px 20px 12px; background: #FFD60A; color: #1E1B24; border: 3px solid #1E1B24; border-radius: 12px; box-shadow: 0 8px 14px -8px rgba(30,27,36,.5); cursor: pointer; transition: transform .08s, box-shadow .08s; } .ds-make:hover { background: #FFE04D; } .ds-make:active { transform: translateY(2px); box-shadow: 0 3px 8px -6px rgba(30,27,36,.5); } .ds-make:focus-visible { outline: 3px solid #1E1B24; outline-offset: 2px; }"
+    },
+    {
+      "name": "Standard Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Secondary action on slip stock.",
+      "html": "<button class=\"ds-btn\">Choose folder</button>",
+      "css": ".ds-btn { min-height: 36px; font: 700 14px 'Atkinson Hyperlegible','Segoe UI',sans-serif; background: var(--slip, #F8FAFC); color: #1E1B24; border: 2px solid #1E1B24; border-radius: 8px; padding: 6px 12px; cursor: pointer; } .ds-btn:hover { background: #FFFFFF; } .ds-btn:focus-visible { outline: 3px solid #1E1B24; outline-offset: 2px; }"
+    },
+    {
+      "name": "Format Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Pill toggle for output format; pressed is solid ink.",
+      "html": "<button class=\"ds-chip\" aria-pressed=\"false\">GIF</button> <button class=\"ds-chip\" aria-pressed=\"true\">WebP</button>",
+      "css": ".ds-chip { min-height: 32px; font: 700 14px 'Atkinson Hyperlegible','Segoe UI',sans-serif; padding: 4px 14px; border: 2px solid #1E1B24; border-radius: 99px; background: #FFFFFF; color: #1E1B24; cursor: pointer; } .ds-chip:hover { background: var(--ground, #E4E8ED); } .ds-chip[aria-pressed=\"true\"] { background: #1E1B24; color: var(--slip, #F8FAFC); } .ds-chip:focus-visible { outline: 3px solid #1E1B24; outline-offset: 2px; }"
+    },
+    {
+      "name": "Time Input",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Start or Stop box in tabular figures.",
+      "html": "<input class=\"ds-time\" value=\"0:12\" aria-label=\"Start\">",
+      "css": ".ds-time { width: 92px; min-height: 36px; font: 700 19px/1 'Atkinson Hyperlegible','Segoe UI',sans-serif; letter-spacing: .02em; font-variant-numeric: tabular-nums; text-align: center; color: #1E1B24; background: #FFFFFF; border: 2px solid #1E1B24; border-radius: 6px; padding: 5px 4px; } .ds-time:focus-visible { outline: 3px solid #1E1B24; outline-offset: 2px; }"
+    },
+    {
+      "name": "Sticker Count",
+      "kind": "chip",
+      "refersTo": "sticker",
+      "description": "Paper pill for counts; never coloured.",
+      "html": "<span class=\"ds-sticker\">3</span>",
+      "css": ".ds-sticker { display: inline-grid; place-items: center; min-width: 30px; height: 30px; padding: 0 8px; border-radius: 99px; background: #FFFFFF; border: 2px solid #1E1B24; font: 700 15px 'Atkinson Hyperlegible','Segoe UI',sans-serif; font-variant-numeric: tabular-nums; color: #1E1B24; }"
+    },
+    {
+      "name": "Done Stamp",
+      "kind": "custom",
+      "refersTo": "stamp-done",
+      "description": "Rubber stamp that slams in when a clip is finished.",
+      "html": "<span class=\"ds-stamp\">Done</span>",
+      "css": ".ds-stamp { display: inline-block; font: 400 15px/1 'Bowlby One','Arial Black',sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #00805A; border: 3px solid currentColor; border-radius: 6px; padding: 5px 9px 4px; transform: rotate(-6deg); white-space: nowrap; animation: ds-stamp-in .5s cubic-bezier(.16,1,.3,1) both; } @keyframes ds-stamp-in { from { transform: rotate(-6deg) scale(1.9); opacity: 0; } } @media (prefers-reduced-motion: reduce) { .ds-stamp { animation: none; } }"
+    },
+    {
+      "name": "Rental Slip",
+      "kind": "card",
+      "refersTo": "slip",
+      "description": "One video: stub with thumbnail and length, perforation, notches, title and times. Magenta ring variant marks the one under the eye.",
+      "html": "<div class=\"ds-slip\"><div class=\"ds-stub\"><div class=\"ds-thumb\"></div><div class=\"ds-len\">0:42</div></div><div class=\"ds-main\"><p class=\"ds-title\">Harbour at dawn</p><p class=\"ds-src\">example.com</p></div></div>",
+      "css": ".ds-slip { --stub: 92px; position: relative; display: grid; grid-template-columns: var(--stub) minmax(0,1fr); background: var(--slip, #F8FAFC); border: 1.5px solid #1E1B24; border-radius: 10px; color: #1E1B24; font: 400 15px/1.4 'Atkinson Hyperlegible','Segoe UI',sans-serif; } .ds-slip::before, .ds-slip::after { content: ''; position: absolute; left: calc(var(--stub) - 9px); width: 18px; height: 18px; border-radius: 50%; background: var(--ground, #E4E8ED); border: 1.5px solid #1E1B24; z-index: 1; } .ds-slip::before { top: -10px; clip-path: inset(50% 0 0 0); } .ds-slip::after { bottom: -10px; clip-path: inset(0 0 50% 0); } .ds-stub { position: relative; padding: 8px; display: flex; flex-direction: column; gap: 6px; justify-content: center; } .ds-stub::after { content: ''; position: absolute; right: -1px; top: 10px; bottom: 10px; width: 2px; background: repeating-linear-gradient(to bottom, #4A4655 0 3px, transparent 3px 8px); } .ds-thumb { aspect-ratio: 16/10; border-radius: 4px; border: 1.5px solid #1E1B24; background: var(--line, #CBD1D9); } .ds-len { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; color: #4A4655; text-align: center; } .ds-main { padding: 10px 14px 12px 16px; display: grid; gap: 8px; align-content: start; } .ds-title { margin: 0; font-weight: 700; font-size: 15px; line-height: 1.25; } .ds-src { margin: 0; font-size: 13px; color: #4A4655; }"
+    },
+    {
+      "name": "Progress Bar",
+      "kind": "custom",
+      "refersTo": "button-make",
+      "description": "One bar plus stage label; yellow fill, 14px pill track.",
+      "html": "<div class=\"ds-progress\"><div class=\"ds-stage\">Downloading 60%</div><div class=\"ds-track\"><div class=\"ds-fill\"></div></div></div>",
+      "css": ".ds-progress { width: min(100%,240px); display: grid; gap: 4px; font-family: 'Atkinson Hyperlegible','Segoe UI',sans-serif; } .ds-stage { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; color: #4A4655; text-align: right; } .ds-track { height: 14px; border: 2px solid #1E1B24; border-radius: 99px; background: #FFFFFF; overflow: hidden; } .ds-fill { height: 100%; background: #FFD60A; border-right: 2px solid #1E1B24; transform: translateX(-40%); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Corner Video Shop",
+    "overview": "Every video is a tape on the rental shelf, handed over on a slip with an in-point and an out-point, then stamped when it is done. The window is a counter on the left and a shelf of slips on the right. It is a printed, tactile, daytime-lit world: card stock, ink, sticker dots, rubber stamps; flat and outlined, not glossy.\n\nDensity is moderate and friendly. Only Start and Stop are asked of the person. Tool names and flags never appear.\n\nThe three light themes (grey default, mint, lilac) change only surface tints. Ink and every accent are fixed. Warm cream grounds are refused.",
+    "keyCharacteristics": [
+      "Ink-outlined paper shapes on a tinted ground; 2px ink borders are the default edge.",
+      "One loud sign face (Bowlby One) for brand, Make and stamps; one plain humanist sans (Atkinson Hyperlegible) for everything else.",
+      "Three accents, each with exactly one job: yellow, magenta, stamp green (plus alert red for problems).",
+      "Times and counts use tabular figures.",
+      "Light themes only."
+    ],
+    "rules": [
+      { "name": "The Reserved Yellow Rule", "body": "Yellow means \"press this\" or \"this is working\". It appears on Make, the progress fill, and the setup Try again button, and on nothing else.", "section": "colors" },
+      { "name": "The One Under The Eye Rule", "body": "Magenta appears once per screen at most: the ring on the single slip being looked at.", "section": "colors" },
+      { "name": "The Fixed Ink Rule", "body": "Themes retint ground, slip, line and header only. Ink and accents never change per theme.", "section": "colors" },
+      { "name": "The Sign Is Rare Rule", "body": "Bowlby One is for the wordmark, Make and stamps. Body copy, titles and controls stay in Atkinson.", "section": "typography" },
+      { "name": "The No Offset Rule", "body": "No hard offset shadows. Soft, tall-and-narrow shadows only, and only for Make and the popover.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep yellow (#FFD60A) to Make, the progress fill and the setup Try again.",
+      "Do put magenta (#E6007E) on one slip only, as a ring.",
+      "Do make stickers, badges and counts paper with an ink border.",
+      "Do use --ground, --slip, --line, --tb for any surface tint so all three themes work.",
+      "Do keep every control at least 32px tall and give focus a 3px ink outline.",
+      "Do use tabular figures for every time, count and percentage.",
+      "Do keep stamps in Bowlby One with the slam-in, and remove the animation under reduced motion.",
+      "Do use the breakpoints 900px and 640px."
+    ],
+    "donts": [
+      "Don't use hard-offset shadows or coloured shadows.",
+      "Don't tint a theme warm or cream, or add a dark theme.",
+      "Don't introduce a second progress bar or a percentage-only readout without the stage label.",
+      "Don't open a modal for preview; it lives inside the slip.",
+      "Don't show tool names, flags or filenames-in-a-table as the primary layout.",
+      "Don't use Bowlby One for body copy or controls."
+    ]
+  }
+}
