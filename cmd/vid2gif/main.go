@@ -184,7 +184,7 @@ func runClipCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	return makeClip(ctx, o, wantBar(o, stdout), stdout, stderr, func(out, toolOut io.Writer) clipRunner {
+	return makeClip(ctx, o, stdout, stderr, func(out, toolOut io.Writer) clipRunner {
 		return clip.New(ytdlp, ffmpeg, deno, hint, out).WithToolOutput(toolOut)
 	})
 }
@@ -193,9 +193,12 @@ type clipRunner interface {
 	Run(ctx context.Context, o clip.Opts) error
 }
 
+// isTerm decides whether stdout is a terminal; tests replace it.
+var isTerm = isTerminal
+
 // wantBar: the progress bar is on by default, but only on a terminal.
 func wantBar(a clipArgs, stdout io.Writer) bool {
-	return !a.NoProgress && isTerminal(stdout)
+	return !a.NoProgress && isTerm(stdout)
 }
 
 // makeClip runs one clip; newRunner builds the pipeline writing its lines to
@@ -203,8 +206,8 @@ func wantBar(a clipArgs, stdout io.Writer) bool {
 // the run is exactly the plain one. With it, the bar shows the app's progress
 // (same tracker, labels and honesty rules), and yt-dlp's output is held back
 // and printed only if the run fails (not on Ctrl+C).
-func makeClip(ctx context.Context, a clipArgs, showBar bool, stdout, stderr io.Writer, newRunner func(out, toolOut io.Writer) clipRunner) int {
-	if !showBar {
+func makeClip(ctx context.Context, a clipArgs, stdout, stderr io.Writer, newRunner func(out, toolOut io.Writer) clipRunner) int {
+	if !wantBar(a, stdout) {
 		if err := newRunner(stdout, nil).Run(ctx, a.Opts); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
 			return 1

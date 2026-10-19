@@ -709,6 +709,29 @@ func TestWithToolOutputCapturesYtdlp(t *testing.T) {
 	}
 }
 
+// WithToolOutput(nil), the CLI's plain path, leaves yt-dlp writing to this
+// process's own stdout and stderr (the terminal), not to a capture.
+func TestWithToolOutputNilPassesThrough(t *testing.T) {
+	t.Setenv("VID2GIF_HELPER", "chatter")
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldOut, oldErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = w, w
+	var out bytes.Buffer
+	p := New(os.Args[0], os.Args[0], "", "", &out).WithToolOutput(nil)
+	o := baseOpts(t.TempDir(), "gif")
+	o.Name = "given"
+	runErr := p.Run(context.Background(), o)
+	os.Stdout, os.Stderr = oldOut, oldErr
+	w.Close()
+	got, _ := io.ReadAll(r)
+	if runErr == nil || !strings.Contains(string(got), "TOOL-STDOUT") || !strings.Contains(string(got), "TOOL-STDERR") {
+		t.Errorf("err = %v; process stdout/stderr got %q, want the tool's output", runErr, got)
+	}
+}
+
 func TestToolOutputDefaultsToTerminal(t *testing.T) {
 	if o, e := toolOutput(context.Background()); o != os.Stdout || e != os.Stderr {
 		t.Errorf("default tool output = %v, %v; want os.Stdout, os.Stderr", o, e)

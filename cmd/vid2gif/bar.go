@@ -15,8 +15,11 @@ const (
 	barCells   = 24
 	labelWidth = 22 // "Getting the clip 99%" plus room; longer labels are cut
 	sweepCells = 3
-	tickEvery  = time.Second / 8 // the only redraws: at most 8 a second
 )
+
+// tickEvery paces the only redraws: at most 8 a second. Tests stretch it and
+// draw with tick().
+var tickEvery = time.Second / 8
 
 // bar is one progress line on a terminal, redrawn in place with \r: stage
 // label, bar, and the overall percent when it is known and the stage is
