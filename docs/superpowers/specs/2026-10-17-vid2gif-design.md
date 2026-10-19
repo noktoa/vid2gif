@@ -89,7 +89,7 @@ When stdout is a terminal and `--no-progress` is not given, `clip` draws one pro
 - The `skipped …`, `wrote …` and `failed …` lines and the summary are unchanged: the bar is erased before each one and drawn again after it, and erased for good when the run ends (success, failure or Ctrl+C).
 - yt-dlp's own stdout and stderr (title lookup and download) are captured instead of shown, keeping the last 64 KB. If the run fails they are printed to stderr before the `error:` line; after Ctrl+C they are not. ffmpeg's output already goes only into the error text.
 
-When stdout is not a terminal (a file or a pipe), or with `--no-progress`, none of this happens and the output is byte-for-byte what it was before the bar existed.
+When stdout is not a terminal (a file, a pipe or `NUL`; on Windows a console is required), or with `--no-progress`, none of this happens and the output is the same as without the bar (before this feature).
 
 ### ffmpeg invocations
 

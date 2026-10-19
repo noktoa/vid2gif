@@ -115,7 +115,7 @@ The percentage at the end is for the whole clip. It never reaches 100% before th
 
 While the bar is shown, yt-dlp's own messages are held back. If the run fails they are printed before the error, so you still see why. The `wrote …`, `skipped …` and `failed …` lines are printed as usual.
 
-When the output isn't a terminal (redirected to a file or piped to another program), or with `--no-progress`, there is no bar and the output is the same as before the bar existed.
+When the output isn't a terminal (redirected to a file, piped to another program, or sent to `NUL`), or with `--no-progress`, there is no bar and the output is the same as without the bar (before this feature).
 
 ### Existing files
 
@@ -251,7 +251,7 @@ Each package in one line:
 - `internal/runner`: makes a queue of clips one after another and turns the pipeline's events into the states the app shows.
 - `internal/progress`: turns the pipeline's stage events into one overall percent (from a table of measured stage costs) and the stage labels, for both the app and the command line.
 - `internal/filesrv`: serves the generated previews to the app's window, only from allowed folders and only media files.
-- `internal/proc`: stops tool child processes from flashing console windows on Windows.
+- `internal/proc`: stops tool child processes from flashing console windows when the desktop app starts them on Windows. From a terminal the tools share the terminal, so their output and Ctrl+C reach them.
 
 What happens during one `clip` run:
 
