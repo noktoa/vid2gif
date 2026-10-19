@@ -1,8 +1,12 @@
 ---
 version: 1
 slug: "frontend-index-html"
-primary_target: "frontend/index.html"
-related_targets: []
+primary_target: "cmd/vid2gif-app/frontend/index.html"
+related_targets:
+  - "cmd/vid2gif-app/frontend/styles.css"
+  - "cmd/vid2gif-app/frontend/themes.css"
+  - "cmd/vid2gif-app/frontend/app.js"
+  - "cmd/vid2gif-app/frontend/state.js"
 ---
 
 # Main window

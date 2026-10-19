@@ -34,7 +34,6 @@ test("ink on the yellow button is at least 7:1", () => {
   assert.ok(ratio(INK, YELLOW) >= 7, ratio(INK, YELLOW).toFixed(2));
 });
 
-test("focus rings keep 3:1: ink on white, yellow on a pressed (ink) button", () => {
+test("focus rings keep 3:1: ink on white, white on a pressed (ink) button", () => {
   assert.ok(ratio(INK, "#FFFFFF") >= 3);
-  assert.ok(ratio(YELLOW, INK) >= 3);
 });

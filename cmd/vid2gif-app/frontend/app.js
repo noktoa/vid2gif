@@ -93,19 +93,20 @@ function render() {
 function paintAll() {
   const eye = S.eyeId(slips, previewId);
   if (previewId && eye !== previewId) previewId = null;
+  const header = S.sourceTitle(slips);
   const ids = new Set(slips.map((s) => s.id));
   for (const [id, li] of rows) if (!ids.has(id)) { li.remove(); rows.delete(id); }
   let prev = null;
   for (const s of slips) {
     let li = rows.get(s.id);
     if (!li) { rows.set(s.id, (li = newRow())); li.dataset.id = s.id; }
-    paint(li, s, eye);
+    paint(li, s, eye, header);
     const want = prev ? prev.nextSibling : shelf.firstChild;
     if (want !== li) shelf.insertBefore(li, want);
     prev = li;
   }
   $("empty").hidden = slips.length > 0;
-  $("source").textContent = S.sourceTitle(slips) || "Your shelf";
+  $("source").textContent = header || "Your shelf";
   $("count").textContent = String(slips.length);
   $("count-word").textContent = slips.length === 1 ? "video" : "videos";
   if (running) {
@@ -130,11 +131,14 @@ function newRow() {
 const titleOf = (s) => (s.pending ? "Looking this one up…" : s.title || (s.unavailable ? "Unavailable video" : "Link you pasted"));
 const modeOf = (s) => (s.pending ? "pending" : s.failed || s.unavailable ? "gone" : "slip");
 
-function paint(li, s, eye) {
+function paint(li, s, eye, header) {
   const mode = modeOf(s);
   const title = titleOf(s);
   li.querySelector(".title").textContent = title;
-  li.querySelector(".src").textContent = s.source && s.source !== "Pasted links" ? s.source : shortUrl(s.url || "");
+  // a playlist entry names its playlist only when the header doesn't already
+  const src = s.source && s.source !== "Pasted links" ? (s.source === header ? "" : s.source) : shortUrl(s.url || "");
+  li.querySelector(".src").textContent = src;
+  li.querySelector(".src").hidden = !src;
   li.querySelector(".len").textContent = S.formatDuration(s.durationSec);
 
   const thumbKey = mode + "|" + s.thumbnailUrl;
@@ -227,6 +231,27 @@ function paintTimes(li, s, title) {
     if (open) stamp.setAttribute("aria-controls", "preview-" + s.id);
     else stamp.removeAttribute("aria-controls");
   }
+  const watch = box.querySelector("button.watch");
+  if (watch) {
+    const open = s.id === previewId;
+    watch.hidden = open;
+    watch.setAttribute("aria-expanded", String(open));
+    if (open) watch.setAttribute("aria-controls", "preview-" + s.id);
+    else watch.removeAttribute("aria-controls");
+  }
+}
+
+// under the formats line: Watch opens the preview; with nothing playable
+// (a MOV-only result) Open folder instead; no files, nothing
+function finishedAction(s, files) {
+  if (files.some(playable)) {
+    return el("button", {
+      class: "btn quiet watch", type: "button", text: "Watch", "aria-label": "Watch " + titleOf(s),
+      onclick: () => { previewId = s.id; paintAll(); rows.get(s.id)?.querySelector("button.stamp")?.focus(); },
+    });
+  }
+  if (files.length) return el("button", { class: "btn quiet", type: "button", text: "Open folder", onclick: () => App.OpenFolder(files[0].path) });
+  return null;
 }
 
 function buildState(s, msg, needStart) {
@@ -248,6 +273,7 @@ function buildState(s, msg, needStart) {
       }));
       if (st.kind !== "already") out.push(el("p", { class: "files", text: st.files.map((f) => FMT[f.format] || f.format.toUpperCase()).join(" + ") }));
       if (st.kind === "already") out.push(el("p", { class: "note", text: "Already in your folder" }));
+      { const act = finishedAction(s, st.files); if (act) out.push(act); }
       if (st.kind === "partial" && st.message) out.push(el("p", { class: "note alert", text: st.message }));
       break;
     case "failed":
@@ -495,15 +521,27 @@ on("run:busy", (m) => notice(m?.message || ""));
 // ---------- first launch ----------
 let setupAcc;
 const setupBar = $("setup-progress");
+const READY_H = $("setup-h").textContent;
+// setupFailed swaps the screen to its error state: the downloading text and
+// bar go, so it never says "downloading" above "couldn't download"
+function setupFailed(message, needsAdmin) {
+  $("setup-h").textContent = "Couldn't finish getting ready";
+  $("setup-text").hidden = true;
+  setupBar.hidden = true;
+  $("setup-error").textContent = message;
+  $("setup-error").hidden = false;
+  $("setup-retry").hidden = needsAdmin;
+}
 function showSetup(needsAdmin) {
   document.getElementById("settings").hidePopover?.();
   $("setup").hidden = false;
   appEl.inert = true;
-  $("setup-text").hidden = needsAdmin;
-  setupBar.hidden = needsAdmin;
+  $("setup-h").textContent = READY_H;
+  $("setup-text").hidden = false;
+  setupBar.hidden = false;
   $("setup-retry").hidden = true;
-  $("setup-error").hidden = !needsAdmin;
-  $("setup-error").textContent = needsAdmin ? ADMIN : "";
+  $("setup-error").hidden = true;
+  if (needsAdmin) setupFailed(ADMIN, true);
   $("setup-h").focus();
   if (needsAdmin) return;
   setupAcc = undefined;
@@ -523,12 +561,9 @@ on("setup:done", () => {
   linkField.focus();
 });
 on("setup:error", (e) => {
-  $("setup-error").textContent = e.message;
-  $("setup-error").hidden = false;
-  setupBar.hidden = true;
-  $("setup-text").hidden = e.needsAdmin;
-  $("setup-retry").hidden = e.needsAdmin;
-  if (!e.needsAdmin) $("setup-retry").focus();
+  setupFailed(e.message, e.needsAdmin);
+  if (e.needsAdmin) $("setup-h").focus();
+  else $("setup-retry").focus();
 });
 on("setup:needed", () => { if ($("setup").hidden) showSetup(false); });
 $("setup-retry").addEventListener("click", () => showSetup(false));
