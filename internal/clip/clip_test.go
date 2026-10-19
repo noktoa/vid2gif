@@ -74,6 +74,23 @@ func TestRunWritesAllFormats(t *testing.T) {
 	}
 }
 
+func TestRunOtherQualityMakesNewFile(t *testing.T) {
+	dir := t.TempDir()
+	var out bytes.Buffer
+	p, _ := fakePipeline(&out)
+	o := baseOpts(dir, "gif")
+	for _, q := range []string{"low", "high"} {
+		o.Quality = q
+		if err := p.Run(context.Background(), o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"My__Video_83-88_high.gif", "My__Video_83-88_low.gif"}
+	if got := dirNames(t, dir); !slices.Equal(got, want) || strings.Contains(out.String(), "already exists") {
+		t.Errorf("files = %v; out=%q", got, out.String())
+	}
+}
+
 func TestRunGifOnlyDownloadsNoAudio(t *testing.T) {
 	p, st := fakePipeline(io.Discard)
 	if err := p.Run(context.Background(), baseOpts(t.TempDir(), "gif", "webp")); err != nil {

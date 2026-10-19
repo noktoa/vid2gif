@@ -54,14 +54,19 @@ func sanitizeTitle(s string) string {
 	return s
 }
 
-// BuildName returns <title>_<start>-<end>; end 0 means "until the end of the
-// video" and is written as "end".
-func BuildName(title string, start, end float64) string {
+// BuildName returns <title>_<start>-<end>, plus _low or _high for those
+// qualities (medium or empty adds nothing, so existing names stay the same).
+// End 0 means "until the end of the video" and is written as "end".
+func BuildName(title string, start, end float64, quality string) string {
 	endLabel := "end"
 	if end > 0 {
 		endLabel = FmtSeconds(end)
 	}
-	return sanitizeTitle(title) + "_" + FmtSeconds(start) + "-" + endLabel
+	name := sanitizeTitle(title) + "_" + FmtSeconds(start) + "-" + endLabel
+	if quality == "low" || quality == "high" {
+		name += "_" + quality
+	}
+	return name
 }
 
 func OutPath(outDir, name, format string) string {

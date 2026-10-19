@@ -43,7 +43,7 @@ The URL is taken as the first argument after `clip`; Go's `flag` package parses 
 | `--end` | end of the video | must be after start; with no `--end`, yt-dlp gets `*START-inf` and the default name ends in `-end` (internally `End == 0`) |
 | `--format` | `gif` | comma-separated subset of `gif,webp,mp4,mov` |
 | `--out` | `./gifs` | created if missing |
-| `--name` | `<sanitized-title>_<start>-<end>` | base name, no extension; each format adds its own |
+| `--name` | `<sanitized-title>_<start>-<end>[_low\|_high]` | base name, no extension; each format adds its own |
 | `--quality` | `medium` | see table below |
 | `--overwrite` | off | replace existing outputs |
 | `--no-pin` | off | skip version checks and use yt-dlp/ffmpeg/deno from PATH (deno optional) |
@@ -64,7 +64,7 @@ Width is a cap: sources narrower than the cap are not upscaled. fps and width pr
 
 1. **Validate** timestamps and flags. Nothing touches the network on a usage error.
 2. **Resolve tools** (see Dependencies) and verify versions.
-3. **Resolve the name.** If `--name` is absent, run `yt-dlp --print title --no-playlist <url>` (metadata only, no download) and build `<sanitized-title>_<start>-<end>`. Sanitizing replaces `<>:"/\|?*` and control characters, collapses whitespace to `_`, trims trailing dots and spaces, caps the title at 80 characters, and falls back to `clip` if the result is empty.
+3. **Resolve the name.** If `--name` is absent, run `yt-dlp --print title --no-playlist <url>` (metadata only, no download) and build `<sanitized-title>_<start>-<end>`, with `_low` or `_high` appended for those qualities (`medium` adds nothing) so a clip re-made at another quality is not skipped as existing. An explicit `--name` is used as typed. Sanitizing replaces `<>:"/\|?*` and control characters, collapses whitespace to `_`, trims trailing dots and spaces, caps the title at 80 characters, and falls back to `clip` if the result is empty.
 4. **Plan outputs.** For each requested format, if `<out>/<name>.<ext>` exists and `--overwrite` is not set, print `skipped <file> (already exists; use --overwrite to replace)` and drop it from the plan. If nothing is left, stop with exit `0` before downloading.
 5. **Download once** into a temp dir created inside `--out` (`.vid2gif-tmp-*`, so the final move is a same-volume rename). yt-dlp is run with:
    `--no-playlist --download-sections "*START-END" --force-keyframes-at-cuts --merge-output-format mkv --ffmpeg-location <pinned ffmpeg dir> --ignore-config --no-js-runtimes --js-runtimes deno:<pinned deno> -o <tmp>/clip.%(ext)s`

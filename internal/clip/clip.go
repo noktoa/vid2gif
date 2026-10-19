@@ -43,7 +43,7 @@ func (p Pipeline) Run(ctx context.Context, o Opts) error {
 		if err != nil {
 			return fmt.Errorf("fetching title: %w", err)
 		}
-		name = naming.BuildName(title, o.Start, o.End)
+		name = naming.BuildName(title, o.Start, o.End, o.Quality)
 	}
 	todo, skipped := naming.PlanOutputs(o.OutDir, name, o.Formats, o.Overwrite)
 	for _, f := range skipped {
