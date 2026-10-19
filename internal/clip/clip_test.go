@@ -204,7 +204,9 @@ func TestRunEncodeFailureContinuesAndCleansUp(t *testing.T) {
 func TestRunDownloadFailureLeavesNothing(t *testing.T) {
 	dir := t.TempDir()
 	p, _ := fakePipeline(io.Discard)
-	p.download = func(context.Context, Opts, string, bool, func(float64)) (string, error) { return "", errors.New("network down") }
+	p.download = func(context.Context, Opts, string, bool, func(float64)) (string, error) {
+		return "", errors.New("network down")
+	}
 	if err := p.Run(context.Background(), baseOpts(dir, "gif")); err == nil {
 		t.Fatal("expected error")
 	}

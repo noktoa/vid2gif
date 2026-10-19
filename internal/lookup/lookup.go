@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"vid2gif/internal/clip"
-	"vid2gif/internal/proc"
 	"vid2gif/internal/debuglog"
+	"vid2gif/internal/proc"
 )
 
 const pastedSource = "Pasted links"

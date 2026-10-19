@@ -2,8 +2,8 @@ package encode
 
 import (
 	"io"
-	"sort"
 	"slices"
+	"sort"
 	"testing"
 )
 
