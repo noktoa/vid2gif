@@ -4,7 +4,7 @@
 vid2gif clip URL --start T [flags]
 ```
 
-The URL always comes first, then the flags. Run `vid2gif help` to see the flags in the terminal.
+The URL always comes first, then the flags. Run `vid2gif help` to see the flags in the terminal, and `vid2gif --version` to see which release the exe is from (`dev` for a build that isn't a release).
 
 ## Flags
 

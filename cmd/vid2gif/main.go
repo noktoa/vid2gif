@@ -20,12 +20,16 @@ import (
 	"vid2gif/internal/progress"
 )
 
+// version is set by release builds: -ldflags "-X main.version=0.2.3".
+var version = "dev"
+
 const usage = `vid2gif - turn a segment of an online video into a GIF, WebP, MP4 or MOV
 
 Usage:
   vid2gif clip <url> --start T [flags]    the URL must come first
   vid2gif deps install                    download the pinned yt-dlp, ffmpeg and deno into bin/ or $VID2GIF_BIN (run once)
   vid2gif help                            show this text
+  vid2gif --version                       show the version
 
 Example:
   vid2gif deps install
@@ -276,6 +280,9 @@ func realMain(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprint(stderr, usage)
 		return 2
+	case "version", "--version":
+		fmt.Fprintln(stdout, "vid2gif", version)
+		return 0
 	case "help", "-h", "--help":
 		fs := newClipFlags(&clipArgs{}, new(string), new(string), new(string))
 		fs.SetOutput(stdout)
