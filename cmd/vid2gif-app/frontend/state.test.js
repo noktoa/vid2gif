@@ -18,12 +18,12 @@ const ready = (id, more = {}) => {
 };
 const ev = (jobId, kind, more = {}) => ({ jobId, kind, stage: "", message: "", pct: -1, stagePct: -1, files: [], ...more });
 
-test("addPlaceholders appends placeholders and ignores links already on the shelf", () => {
+test("addPlaceholders appends placeholders, and the same link can be added again for another clip", () => {
   const a = addPlaceholders([], [{ id: "p1", url: "https://y/1" }, { id: "p2", url: "https://y/1" }]);
-  assert.deepEqual(a.map((s) => s.id), ["p1"]);
+  assert.deepEqual(a.map((s) => s.id), ["p1", "p2"]);
   assert.equal(a[0].pending, true);
   const b = addPlaceholders(a, [{ id: "p3", url: "https://y/1" }, { id: "p4", url: "https://y/2" }]);
-  assert.deepEqual(b.map((s) => s.id), ["p1", "p4"]);
+  assert.deepEqual(b.map((s) => s.id), ["p1", "p2", "p3", "p4"]);
 });
 
 test("replaceSlip expands one placeholder into many in place", () => {
@@ -39,10 +39,10 @@ test("replaceSlip leaves the list alone for an id it does not have", () => {
   assert.equal(replaceSlip(s, "nope", [slip("x")]), s);
 });
 
-test("replaceSlip drops videos already on the shelf, keeps unavailable entries without a link", () => {
+test("replaceSlip keeps a video that is already on the shelf, and unavailable entries without a link", () => {
   const s = addPlaceholders([ready("a")], [{ id: "p", url: "https://y/list" }]);
   const out = replaceSlip(s, "p", [slip("dup", { url: s[0].url }), slip("n1", { url: "", unavailable: true }), slip("n2", { url: "", unavailable: true })]);
-  assert.deepEqual(out.map((v) => v.id), ["a", "n1", "n2"]);
+  assert.deepEqual(out.map((v) => v.id), ["a", "dup", "n1", "n2"]);
 });
 
 test("canRetry is true only for a failed lookup that has a link", () => {

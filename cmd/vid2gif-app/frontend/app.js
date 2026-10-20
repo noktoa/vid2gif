@@ -24,7 +24,7 @@ let running = false;
 let previewId = null;
 const previewTab = new Map(); // slip id -> format shown in its preview
 const buffered = new Map(); // slips:replace that arrived before Add returned
-const dropped = new Set(); // duplicate placeholders: their replace is ignored
+const dropped = new Set(); // placeholders removed before Add returned: their replace is ignored
 const rows = new Map(); // slip id -> <li>
 
 // ---------- tiny DOM helpers ----------
@@ -445,16 +445,13 @@ async function add(text) {
     return false;
   }
   slips = S.addPlaceholders(slips, placeholders);
-  const kept = new Set(slips.map((s) => s.id));
   for (const p of placeholders) {
-    if (!kept.has(p.id)) {
-      if (!buffered.delete(p.id)) dropped.add(p.id);
-    } else if (buffered.has(p.id)) {
+    if (buffered.has(p.id)) { // an instant failure beat Add's return
       applyReplace(buffered.get(p.id));
       buffered.delete(p.id);
     }
   }
-  notice(placeholders.every((p) => !kept.has(p.id)) ? "That video is already on the shelf." : "");
+  notice("");
   render();
   return true;
 }

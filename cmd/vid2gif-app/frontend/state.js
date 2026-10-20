@@ -13,31 +13,17 @@
 
 const blank = { source: "", startText: "", endText: "", endKind: "stop", start: null, end: 0, timeMsg: "", checked: "|", status: null };
 
-// addPlaceholders appends Add's placeholders, ignoring links already on the shelf.
-export function addPlaceholders(slips, newSlips) {
-  const seen = new Set(slips.map((s) => s.url));
-  const out = [...slips];
-  for (const p of newSlips) {
-    if (seen.has(p.url)) continue;
-    seen.add(p.url);
-    out.push({ ...blank, ...p, pending: true });
-  }
-  return out;
-}
+// addPlaceholders appends Add's placeholders. The same link can be on the shelf
+// more than once: each slip is its own clip (different Start/Stop).
+export const addPlaceholders = (slips, newSlips) =>
+  [...slips, ...newSlips.map((p) => ({ ...blank, ...p, pending: true }))];
 
-// replaceSlip swaps the placeholder id for newSlips in place. Videos already on
-// the shelf are dropped (entries without a link, e.g. private ones, are kept).
-// An unknown id returns slips itself, so the caller can tell.
+// replaceSlip swaps the placeholder id for newSlips in place. An unknown id
+// returns slips itself, so the caller can tell.
 export function replaceSlip(slips, id, newSlips) {
   const i = slips.findIndex((s) => s.id === id);
   if (i < 0) return slips;
-  const seen = new Set(slips.filter((s) => s.id !== id).map((s) => s.url));
-  const fresh = [];
-  for (const n of newSlips || []) {
-    if (n.url && seen.has(n.url)) continue;
-    if (n.url) seen.add(n.url);
-    fresh.push({ ...blank, ...n });
-  }
+  const fresh = (newSlips || []).map((n) => ({ ...blank, ...n }));
   return [...slips.slice(0, i), ...fresh, ...slips.slice(i + 1)];
 }
 
