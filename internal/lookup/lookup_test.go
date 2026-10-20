@@ -17,6 +17,16 @@ func TestParseInput(t *testing.T) {
 		{"drops non-http", "javascript:alert(1) C:\\x.mp4 ftp://a.test/x file:///etc/passwd https://a.test/ok", []string{"https://a.test/ok"}},
 		{"drops hostless", "http:// https:///x", nil},
 		{"dedupes keeping first order", "https://b.test https://a.test https://b.test", []string{"https://b.test", "https://a.test"}},
+		// A link pasted without its scheme (e.g. copied from the address bar of
+		// a browser that hides it) still works: https:// is assumed.
+		{"scheme stripped", "www.youtube.com/watch?v=abc youtu.be/xyz music.youtube.com/playlist?list=PL1", []string{"https://www.youtube.com/watch?v=abc", "https://youtu.be/xyz", "https://music.youtube.com/playlist?list=PL1"}},
+		{"scheme stripped, bare host", "youtube.com", []string{"https://youtube.com"}},
+		{"scheme stripped with port", "a.test:8080/x", []string{"https://a.test:8080/x"}},
+		{"upper-case scheme kept as typed", "HTTPS://a.test/x", []string{"HTTPS://a.test/x"}},
+		{"same link with and without scheme is one", "https://youtu.be/x youtu.be/x", []string{"https://youtu.be/x"}},
+		{"stripped dupes", "youtu.be/x youtu.be/x", []string{"https://youtu.be/x"}},
+		{"not links without a scheme", "javascript:alert(1) C:\\x.mp4 mailto:a@b.test localhost word e.g. 1.2 v1.0 a.test@evil user@a.test //a.test/x /etc/passwd ../x.gif a.test:abc/x", nil},
+		{"whitespace-split sentence", "see youtu.be/x for the clip.", []string{"https://youtu.be/x"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

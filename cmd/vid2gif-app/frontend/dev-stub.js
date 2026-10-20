@@ -81,7 +81,10 @@
       }
     },
     async Add(text) {
-      const links = text.split(/\s+/).filter((l) => /^https?:\/\//.test(l));
+      // like lookup.ParseInput: a link pasted without its scheme gets https:// back
+      const links = text.split(/[\s,]+/)
+        .map((l) => (/^[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z0-9-]*(:\d+)?([/?#]|$)/.test(l) ? "https://" + l : l))
+        .filter((l, i, all) => /^https?:\/\/./i.test(l) && all.indexOf(l) === i);
       const placeholders = links.map((url) => ({ ...slip(url, { title: "", durationSec: 0 }) }));
       placeholders.forEach((p) => later(700, () => {
         if (/private|removed/.test(p.url)) {

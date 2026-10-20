@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"vid2gif/internal/clip"
@@ -28,19 +29,44 @@ type Video struct {
 }
 
 // ParseInput splits pasted text on whitespace and commas and keeps the
-// distinct http(s) links, first occurrence first.
+// distinct http(s) links, first occurrence first. A link pasted without its
+// scheme (youtu.be/x, www.youtube.com/watch?v=x) gets https:// put back.
 func ParseInput(text string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, f := range strings.FieldsFunc(text, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r' }) {
-		u, err := url.Parse(f)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || seen[f] {
+		link, ok := asLink(f)
+		if !ok || seen[link] {
 			continue
 		}
-		seen[f] = true
-		out = append(out, f)
+		seen[link] = true
+		out = append(out, link)
 	}
 	return out
+}
+
+// bareHost is what may come before the first / ? # of a link whose scheme was
+// stripped: dotted name labels, an optional port, and a last label that starts
+// with a letter (so "1.2", "v1.0" and "localhost" are not links).
+var bareHost = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\.[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9](?::[0-9]{1,5})?$`)
+
+// asLink returns f as an http(s) link: as typed when it has a scheme, with
+// https:// added when it looks like host/path with the scheme stripped.
+func asLink(f string) (string, bool) {
+	if !strings.Contains(f, "://") {
+		host, _, _ := strings.Cut(f, "/")
+		host, _, _ = strings.Cut(host, "?")
+		host, _, _ = strings.Cut(host, "#")
+		if !bareHost.MatchString(host) {
+			return "", false
+		}
+		f = "https://" + f
+	}
+	u, err := url.Parse(f)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", false
+	}
+	return f, true
 }
 
 // entry is the part of yt-dlp's --dump-json line we read. A playlist entry
