@@ -145,7 +145,12 @@ export function markReady(slips, ids) {
 
 export const markAllReady = (slips) => markReady(slips, inLane(slips, "later").map((s) => s.id));
 
-export const moveToLater = (slips, id) => update(slips, id, (s) => (s.lane === "ready" ? { ...s, lane: "later" } : s));
+// moveToLater parks a Ready slip at the end of Later, where Go puts it too.
+export function moveToLater(slips, id) {
+  const s = slips.find((x) => x.id === id);
+  if (!s || s.lane !== "ready") return slips;
+  return [...slips.filter((x) => x !== s), { ...s, lane: "later" }];
+}
 
 // makeAgain appends a copy of a made slip to Later: same setup, new id, no result.
 export function makeAgain(slips, oldId, newId) {

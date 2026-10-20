@@ -335,12 +335,15 @@ test("markReady moves only the named ids, and only the valid ones", () => {
   assert.equal(inLane(out, "made")[0].id, "m");
 });
 
-test("moveToLater changes only the lane", () => {
-  const s = [ready("a"), ready("b")];
+test("moveToLater changes only the lane, and goes to the end of Later (as Go saves it)", () => {
+  const s = [ready("a"), ready("b"), ready("l", { lane: "later" })];
   const out = moveToLater(s, "a");
-  assert.deepEqual(out[0], { ...s[0], lane: "later" });
-  assert.equal(out[1], s[1]);
+  assert.deepEqual(out.at(-1), { ...s[0], lane: "later" });
+  assert.deepEqual(ids(inLane(out, "later")), ["l", "a"]);
+  assert.deepEqual(ids(inLane(out, "ready")), ["b"]);
+  assert.equal(out[0], s[1]);
   assert.equal(moveToLater(s, "nope"), s);
+  assert.equal(moveToLater(s, "l"), s);
 });
 
 test("applyStatus puts a finished slip in Made, last, and a made slip cannot be run", () => {

@@ -669,7 +669,10 @@ async function retry(id) {
     }
     slips = S.retrySlip(slips, id, p);
     if (!slips.some((x) => x.id === p.id)) { // removed while we waited
-      if (!buffered.delete(p.id)) dropped.add(p.id);
+      const early = buffered.get(p.id);
+      buffered.delete(p.id);
+      if (early) discardReplace(early);
+      else dropped.add(p.id);
     } else if (buffered.has(p.id)) { // an instant failure beat Add's return
       applyReplace(buffered.get(p.id));
       buffered.delete(p.id);
@@ -680,6 +683,12 @@ async function retry(id) {
   } finally {
     retrying.delete(id);
   }
+}
+
+// A lookup finished for a placeholder the page already let go of (removed, or
+// Clear cache). Go saves what it finds before it replies, so take it back out.
+function discardReplace(r) {
+  for (const s of r.slips || []) queueSave(() => App.Remove(s.id));
 }
 
 function applyReplace(r) {
@@ -852,11 +861,16 @@ $("clear-cache").addEventListener("click", () => cacheAsk(true));
 $("cache-no").addEventListener("click", () => cacheAsk(false));
 $("cache-yes").addEventListener("click", async () => {
   try {
+    await saving; // a save still queued would land after the wipe and bring rows back
     await App.ClearCache();
   } catch (err) {
     cacheAsk(false);
     return notice(String(err?.message || err));
   }
+  // Lookups still in flight will reply to rows that are gone: drop those replies.
+  for (const s of slips) if (s.pending) dropped.add(s.id);
+  for (const r of buffered.values()) discardReplace(r);
+  buffered.clear();
   slips = [];
   previewId = null;
   expanded.clear();
@@ -870,7 +884,7 @@ $("cache-yes").addEventListener("click", async () => {
 
 on("shelf:notice",(m) => notice(m?.message || ""));
 on("slips:replace", (r) => {
-  if (dropped.delete(r.id)) return;
+  if (dropped.delete(r.id)) return discardReplace(r);
   if (!slips.some((s) => s.id === r.id)) { buffered.set(r.id, r); return; }
   applyReplace(r);
   render();
