@@ -37,6 +37,30 @@ func TestParseInput(t *testing.T) {
 	}
 }
 
+func TestStartFromLink(t *testing.T) {
+	for link, want := range map[string]string{
+		"https://youtu.be/abc?t=90":                            "1:30",
+		"https://youtu.be/abc?si=xyz&t=90":                     "1:30",
+		"https://www.youtube.com/watch?v=abc&t=90s":            "1:30",
+		"https://www.youtube.com/watch?v=abc&t=1h2m3s":         "1:02:03",
+		"https://youtu.be/abc?t=2m":                            "2:00",
+		"https://m.youtube.com/watch?v=abc&t=1m30":             "1:30",
+		"https://www.youtube.com/embed/abc?start=45":           "0:45",
+		"https://youtu.be/abc?t=3600":                          "1:00:00",
+		"https://youtu.be/abc":                                 "",
+		"https://youtu.be/abc?t=0":                             "",
+		"https://youtu.be/abc?t=soon":                          "",
+		"https://youtu.be/abc?t=99999999999999999999999":       "",
+		"https://vimeo.com/123?t=90":                           "",
+		"https://notyoutube.com/watch?v=abc&t=90":              "",
+		"https://www.youtube.com/watch?v=abc&list=PL1&t=1m30s": "1:30",
+	} {
+		if got := StartFromLink(link); got != want {
+			t.Errorf("StartFromLink(%q) = %q, want %q", link, got, want)
+		}
+	}
+}
+
 func fixture(t *testing.T, name string) []byte {
 	t.Helper()
 	b, err := os.ReadFile("testdata/" + name)

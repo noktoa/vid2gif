@@ -4,12 +4,14 @@ package lookup
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"vid2gif/internal/clip"
@@ -67,6 +69,45 @@ func asLink(f string) (string, bool) {
 		return "", false
 	}
 	return f, true
+}
+
+// ytTime is YouTube's t= value: seconds (90, 90s) or 1h2m3s with any part left out.
+var ytTime = regexp.MustCompile(`^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$`)
+
+// StartFromLink returns the start time a YouTube share link carries (?t=90,
+// ?t=1m30s, ?start=90) as "m:ss" or "h:mm:ss", ready for the Start box.
+// "" means none, zero or unreadable, and any other site.
+func StartFromLink(link string) string {
+	u, err := url.Parse(link)
+	if err != nil {
+		return ""
+	}
+	if h := u.Hostname(); h != "youtu.be" && h != "youtube.com" && !strings.HasSuffix(h, ".youtube.com") {
+		return ""
+	}
+	q := u.Query()
+	m := ytTime.FindStringSubmatch(cmp.Or(q.Get("t"), q.Get("start")))
+	if m == nil {
+		return ""
+	}
+	var sec int
+	for i, unit := range []int{3600, 60, 1} {
+		if m[i+1] == "" {
+			continue
+		}
+		n, err := strconv.Atoi(m[i+1])
+		if err != nil || n > 1e6 { // absurd: far past any video
+			return ""
+		}
+		sec += n * unit
+	}
+	switch {
+	case sec == 0:
+		return ""
+	case sec >= 3600:
+		return fmt.Sprintf("%d:%02d:%02d", sec/3600, sec%3600/60, sec%60)
+	}
+	return fmt.Sprintf("%d:%02d", sec/60, sec%60)
 }
 
 // entry is the part of yt-dlp's --dump-json line we read. A playlist entry

@@ -383,6 +383,27 @@ func TestAddReturnsPlaceholdersThenReplaces(t *testing.T) {
 	}
 }
 
+func TestAddFillsStartFromYouTubeLink(t *testing.T) {
+	c, rec := newTestCore(t)
+	c.lookup = func(ctx context.Context, _ Tools, link string) (string, []lookup.Video, error) {
+		return "Pasted links", []lookup.Video{{ID: "x", URL: "https://www.youtube.com/watch?v=x", Title: "X", DurationSec: 600}}, nil
+	}
+	c.Add("https://youtu.be/x?t=90")
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		for _, e := range rec.all() {
+			if r, ok := e.data.(Replace); ok {
+				if got := r.Slips[0].StartText; got != "1:30" {
+					t.Errorf("StartText = %q, want 1:30", got)
+				}
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("no slips:replace")
+}
+
 func TestInstallEvents(t *testing.T) {
 	perm := fmt.Errorf("deno: %w", &fs.PathError{Op: "mkdir", Path: `C:\Program Files\vid2gif\bin`, Err: fs.ErrPermission})
 	for _, tc := range []struct {

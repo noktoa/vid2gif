@@ -54,8 +54,9 @@ type Slip struct {
 	DurationSec  float64 `json:"durationSec"`
 	Unavailable  bool    `json:"unavailable"` // private or removed playlist entry
 	Reason       string  `json:"reason"`
-	Failed       bool    `json:"failed"`  // the lookup failed
-	Message      string  `json:"message"` // plain sentence when Failed
+	Failed       bool    `json:"failed"`    // the lookup failed
+	Message      string  `json:"message"`   // plain sentence when Failed
+	StartText    string  `json:"startText"` // from a YouTube link's ?t=, for the Start box
 }
 
 // Replace swaps the placeholder ID for Slips (a playlist gives many).
@@ -403,6 +404,9 @@ func (c *Core) lookupOne(p Slip) {
 			ID: c.id(), URL: v.URL, Title: v.Title, ThumbnailURL: v.ThumbnailURL,
 			DurationSec: v.DurationSec, Unavailable: v.Unavailable, Reason: v.Reason,
 		})
+	}
+	if len(r.Slips) == 1 && !r.Slips[0].Unavailable { // a playlist link's t= isn't any one video's
+		r.Slips[0].StartText = lookup.StartFromLink(p.URL)
 	}
 	c.send("slips:replace", r)
 }
