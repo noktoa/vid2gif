@@ -1,13 +1,14 @@
-<!--
+﻿<!--
   vid2gif MSI. Build (from the repo root):
-  wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=0.1.0 -d AppExe=dist\vid2gif-app.exe -d AppIcon=cmd\vid2gif-app\icon.ico -o dist\vid2gif-0.1.0.msi
+  wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=0.1.0 -d AppExe=dist\vid2gif-app.exe -d AppIcon=cmd\vid2gif-app\icon.ico -d ToolsDir=bin -o dist\vid2gif-0.1.0.msi
+  ToolsDir holds yt-dlp.exe, ffmpeg.exe and deno.exe at the pins in deps.json
+  (release.ps1 and installer\test.ps1 fill it with build\installtools).
 
   Just me (default, no admin) or all users, chosen in WixUI_Advanced. The
-  helper tools are optional features, not in the package: InstallTools runs
-  the app's install-tools step for the ticked ones, downloading them into
+  helper tools are optional features whose files are in the package, in
   <folder>\bin. An unticked tool is found on PATH by the app instead.
-  Uninstall removes the tool files in <folder>\bin (bin only if then empty)
-  and %LOCALAPPDATA%\vid2gif (neither on upgrade);
+  Uninstall removes them (bin only if then empty) and, if the app downloaded
+  one itself, that too, and %LOCALAPPDATA%\vid2gif (neither on upgrade);
   the install folder itself only goes if it is empty.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
@@ -49,21 +50,23 @@
     <SetProperty Id="WixPerMachineFolder" Action="Vid2gifKeptMachineFolder" Value="[VID2GIF_MACHINE_FOLDER]"
                  Before="WixSetPerUserFolder" Sequence="both" Condition="VID2GIF_MACHINE_FOLDER" />
 
-    <!-- Only a real removal (an uninstall, or unticking a tool in Change)
-         deletes tool files, and only an uninstall the data folder; the old
-         version's removal during an upgrade keeps them. By then Windows
+    <!-- Only a real uninstall removes the app's leftovers in bin and the data
+         folder; the old version's removal during an upgrade keeps them. By
+         then Windows
          Installer has resolved the scope: ALLUSERS=1 for all users, empty for
          just me, so bin is always the one in this installation's folder. -->
     <SetProperty Id="VID2GIF_REMOVE_BIN" Action="Vid2gifRemoveMachineBin" Value="[VID2GIF_MACHINE_FOLDER]bin\"
                  Before="Wix4RemoveFoldersEx_X64" Sequence="execute"
-                 Condition="VID2GIF_MACHINE_FOLDER AND ALLUSERS=1 AND REMOVE AND NOT UPGRADINGPRODUCTCODE" />
+                 Condition="VID2GIF_MACHINE_FOLDER AND ALLUSERS=1 AND REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     <SetProperty Id="VID2GIF_REMOVE_BIN" Action="Vid2gifRemoveUserBin" Value="[VID2GIF_USER_FOLDER]bin\"
                  Before="Wix4RemoveFoldersEx_X64" Sequence="execute"
-                 Condition="VID2GIF_USER_FOLDER AND NOT ALLUSERS=1 AND REMOVE AND NOT UPGRADINGPRODUCTCODE" />
+                 Condition="VID2GIF_USER_FOLDER AND NOT ALLUSERS=1 AND REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     <SetProperty Id="VID2GIF_REMOVE_DATA" Value="[LocalAppDataFolder]vid2gif" Before="Wix4RemoveFoldersEx_X64" Sequence="execute"
                  Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="APPLICATIONFOLDER" Name="vid2gif" />
+      <Directory Id="APPLICATIONFOLDER" Name="vid2gif">
+        <Directory Id="BINFOLDER" Name="bin" />
+      </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
 
@@ -74,71 +77,58 @@
              when the uninstall was planned; this removes it if it is empty. -->
         <RemoveFolder Id="RemoveAppFolder" On="uninstall" />
       </Component>
+      <Component Directory="APPLICATIONFOLDER">
+        <File Source="$(sys.SOURCEFILEDIR)..\LICENSE" Name="LICENSE.txt" />
+      </Component>
+      <Component Directory="APPLICATIONFOLDER">
+        <File Source="$(sys.SOURCEFILEDIR)..\THIRD-PARTY-NOTICES.txt" Name="THIRD-PARTY-NOTICES.txt" />
+      </Component>
       <Component Id="Shortcut" Directory="ProgramMenuFolder">
         <Shortcut Name="vid2gif" Target="[#AppExe]" WorkingDirectory="APPLICATIONFOLDER" Icon="AppIcon.ico" />
         <RegistryValue Root="HKMU" Key="Software\vid2gif" Name="InstallFolder" Type="string" Value="[APPLICATIONFOLDER]" KeyPath="yes" />
-        <!-- bin itself goes if the tools' removal left it empty. -->
+        <!-- The tool files are components of their own (removed with their
+             feature). These remove what the app itself may have put in bin
+             if a tool was unticked, so the app downloaded it on first launch:
+             the tool, its .new stage and .download archive (the names
+             deps.Install writes), then bin itself if that left it empty.
+             bin may be a folder the user already had, so nothing else goes.
+             Unset property = no-op. -->
+        <RemoveFile Id="RmYtDlp" Property="VID2GIF_REMOVE_BIN" Name="yt-dlp.exe" On="uninstall" />
+        <RemoveFile Id="RmYtDlpNew" Property="VID2GIF_REMOVE_BIN" Name="yt-dlp.exe.new" On="uninstall" />
+        <RemoveFile Id="RmYtDlpDl" Property="VID2GIF_REMOVE_BIN" Name=".yt-dlp.download" On="uninstall" />
+        <RemoveFile Id="RmFfmpeg" Property="VID2GIF_REMOVE_BIN" Name="ffmpeg.exe" On="uninstall" />
+        <RemoveFile Id="RmFfmpegNew" Property="VID2GIF_REMOVE_BIN" Name="ffmpeg.exe.new" On="uninstall" />
+        <RemoveFile Id="RmFfmpegDl" Property="VID2GIF_REMOVE_BIN" Name=".ffmpeg.download" On="uninstall" />
+        <RemoveFile Id="RmDeno" Property="VID2GIF_REMOVE_BIN" Name="deno.exe" On="uninstall" />
+        <RemoveFile Id="RmDenoNew" Property="VID2GIF_REMOVE_BIN" Name="deno.exe.new" On="uninstall" />
+        <RemoveFile Id="RmDenoDl" Property="VID2GIF_REMOVE_BIN" Name=".deno.download" On="uninstall" />
         <RemoveFolder Id="RmBin" Property="VID2GIF_REMOVE_BIN" On="uninstall" />
         <util:RemoveFolderEx On="uninstall" Property="VID2GIF_REMOVE_DATA" />
       </Component>
 
-      <!-- One feature per helper tool, ticked by default. The download itself
-           is InstallTools below; the component only records that the tool was
-           ticked (so Change shows it right) and, on removal, deletes what
-           deps.Install writes: the tool, its .new stage and .download archive.
-           bin may be a folder the user already had, so nothing else goes, and
-           a tool that was never ticked is not touched. VID2GIF_REMOVE_BIN unset
-           = no-op.
+      <!-- One feature per helper tool, ticked by default. Their files come from
+           ToolsDir (release.ps1 fills it from deps.json), so the installer
+           knows their real size. An unticked tool is found on PATH by the app.
            ponytail: a silent major upgrade (msiexec /i new.msi /qn) re-ticks
-           everything, so a skipped tool is downloaded; pass ADDLOCAL=Main,<ids>. -->
+           everything; pass ADDLOCAL=Main,<ids> to keep a tool out. -->
       <Feature Id="ToolYtDlp" Title="yt-dlp"
-               Description="Fetches the video. Downloads the version vid2gif was tested with. Untick it to use your own yt-dlp from PATH; other versions may not work.">
-        <Component Directory="APPLICATIONFOLDER">
-          <RegistryValue Root="HKMU" Key="Software\vid2gif\Tools" Name="yt-dlp" Type="string" Value="1" KeyPath="yes" />
-          <RemoveFile Id="RmYtDlp" Property="VID2GIF_REMOVE_BIN" Name="yt-dlp.exe" On="uninstall" />
-          <RemoveFile Id="RmYtDlpNew" Property="VID2GIF_REMOVE_BIN" Name="yt-dlp.exe.new" On="uninstall" />
-          <RemoveFile Id="RmYtDlpDl" Property="VID2GIF_REMOVE_BIN" Name=".yt-dlp.download" On="uninstall" />
+               Description="Fetches the video. Installs the version vid2gif was tested with. Untick it to use your own yt-dlp from PATH; other versions may not work.">
+        <Component Directory="BINFOLDER">
+          <File Id="YtDlpExe" Source="$(ToolsDir)\yt-dlp.exe" Name="yt-dlp.exe" KeyPath="yes" />
         </Component>
       </Feature>
       <Feature Id="ToolFfmpeg" Title="ffmpeg"
-               Description="Cuts the clip and makes the GIF. Downloads the version vid2gif was tested with. Untick it to use your own ffmpeg from PATH; other versions may not work.">
-        <Component Directory="APPLICATIONFOLDER">
-          <RegistryValue Root="HKMU" Key="Software\vid2gif\Tools" Name="ffmpeg" Type="string" Value="1" KeyPath="yes" />
-          <RemoveFile Id="RmFfmpeg" Property="VID2GIF_REMOVE_BIN" Name="ffmpeg.exe" On="uninstall" />
-          <RemoveFile Id="RmFfmpegNew" Property="VID2GIF_REMOVE_BIN" Name="ffmpeg.exe.new" On="uninstall" />
-          <RemoveFile Id="RmFfmpegDl" Property="VID2GIF_REMOVE_BIN" Name=".ffmpeg.download" On="uninstall" />
+               Description="Cuts the clip and makes the GIF. Installs the version vid2gif was tested with. Untick it to use your own ffmpeg from PATH; other versions may not work.">
+        <Component Directory="BINFOLDER">
+          <File Id="FfmpegExe" Source="$(ToolsDir)\ffmpeg.exe" Name="ffmpeg.exe" KeyPath="yes" />
         </Component>
       </Feature>
       <Feature Id="ToolDeno" Title="deno"
-               Description="The JavaScript runtime YouTube needs. Downloads the version vid2gif was tested with. Untick it to use your own deno from PATH; other versions may not work.">
-        <Component Directory="APPLICATIONFOLDER">
-          <RegistryValue Root="HKMU" Key="Software\vid2gif\Tools" Name="deno" Type="string" Value="1" KeyPath="yes" />
-          <RemoveFile Id="RmDeno" Property="VID2GIF_REMOVE_BIN" Name="deno.exe" On="uninstall" />
-          <RemoveFile Id="RmDenoNew" Property="VID2GIF_REMOVE_BIN" Name="deno.exe.new" On="uninstall" />
-          <RemoveFile Id="RmDenoDl" Property="VID2GIF_REMOVE_BIN" Name=".deno.download" On="uninstall" />
+               Description="The JavaScript runtime YouTube needs. Installs the version vid2gif was tested with. Untick it to use your own deno from PATH; other versions may not work.">
+        <Component Directory="BINFOLDER">
+          <File Id="DenoExe" Source="$(ToolsDir)\deno.exe" Name="deno.exe" KeyPath="yes" />
         </Component>
       </Feature>
     </Feature>
-
-    <!-- The ticked tools, as "yt-dlp,deno," (feature action state 3 = local;
-         known once costing is done), for InstallTools. -->
-    <SetProperty Id="VID2GIF_TOOLS" Action="Vid2gifToolYtDlp" Value="[VID2GIF_TOOLS]yt-dlp," After="CostFinalize"
-                 Sequence="execute" Condition="&amp;ToolYtDlp=3" />
-    <SetProperty Id="VID2GIF_TOOLS" Action="Vid2gifToolFfmpeg" Value="[VID2GIF_TOOLS]ffmpeg," After="Vid2gifToolYtDlp"
-                 Sequence="execute" Condition="&amp;ToolFfmpeg=3" />
-    <SetProperty Id="VID2GIF_TOOLS" Action="Vid2gifToolDeno" Value="[VID2GIF_TOOLS]deno," After="Vid2gifToolFfmpeg"
-                 Sequence="execute" Condition="&amp;ToolDeno=3" />
-
-    <!-- Elevated in an all-users install, so bin under Program Files can be
-         written. Failure (offline) is ignored: the app's first launch retries
-         any tool that is in neither bin nor PATH. -->
-    <CustomAction Id="InstallTools" FileRef="AppExe" ExeCommand="--install-tools=[VID2GIF_TOOLS]"
-                  Execute="deferred" Impersonate="no" Return="ignore" />
-    <UI>
-      <ProgressText Action="InstallTools" Message="Downloading helper tools…" />
-    </UI>
-    <InstallExecuteSequence>
-      <Custom Action="InstallTools" After="InstallFiles" Condition="VID2GIF_TOOLS AND NOT REMOVE~=&quot;ALL&quot;" />
-    </InstallExecuteSequence>
   </Package>
 </Wix>

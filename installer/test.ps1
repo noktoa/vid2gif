@@ -1,8 +1,9 @@
 # Builds the MSI as 0.0.1 and 0.0.2, then installs, upgrades and uninstalls it
 # per-user (no admin) in a temp folder and checks what is left behind.
 # Needs `wix` with WixToolset.UI.wixext and WixToolset.Util.wixext, Go (only if
-# dist\vid2gif-app.exe is missing) and the network (the install-time
-# --install-tools step downloads the pinned tools, about 250 MB).
+# dist\vid2gif-app.exe is missing) and the network the first time (the MSI
+# carries the pinned tools, which build\installtools fetches into bin\, about
+# 250 MB, and reuses after that).
 # Refuses to run if vid2gif is already installed. %LOCALAPPDATA%\vid2gif is
 # moved aside for the test and put back afterwards, even on failure.
 $ErrorActionPreference = 'Stop'
@@ -28,7 +29,7 @@ function Msi($argList, $log) {
 }
 function Build($v, $appExe) {
     $out = Join-Path $dist "vid2gif-$v.msi"
-    wix build "$PSScriptRoot\vid2gif.wxs" -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=$v -d AppExe=$appExe -d AppIcon="$root\cmd\vid2gif-app\icon.ico" -o $out
+    wix build "$PSScriptRoot\vid2gif.wxs" -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=$v -d AppExe=$appExe -d AppIcon="$root\cmd\vid2gif-app\icon.ico" -d ToolsDir="$root\bin" -o $out
     if ($LASTEXITCODE) { throw "FAIL: wix build $v" }
     $out
 }
@@ -44,6 +45,9 @@ if (-not (Test-Path $exe)) {
     try { go build -trimpath -tags desktop,production -ldflags '-H windowsgui -s -w' -o $exe ./cmd/vid2gif-app } finally { Pop-Location }
     if ($LASTEXITCODE) { throw 'FAIL: go build' }
 }
+Push-Location $root
+try { go run ./build/installtools deps.json bin } finally { Pop-Location }
+if ($LASTEXITCODE) { throw 'FAIL: fetching the helper tools' }
 # 0.0.2 gets a different exe (one byte appended; Windows ignores it), so the
 # upgrade check can tell the files apart by hash
 $exe2 = Join-Path $dist 'vid2gif-app-test2.exe'
@@ -78,19 +82,16 @@ try {
     Check (Test-Path $menuLnk) 'Start Menu shortcut'
     $e = @(Entries)
     Check ($e.Count -eq 1 -and $e[0].PerUser -and $e[0].Version -eq '0.0.1') 'one per-user installed-apps entry, 0.0.1'
-    foreach ($tool in 'yt-dlp.exe', 'ffmpeg.exe', 'deno.exe') { Check (Test-Path "$dir\bin\$tool") "bin\$tool installed by --install-tools" }
+    foreach ($tool in 'yt-dlp.exe', 'ffmpeg.exe', 'deno.exe') { Check ((Test-Path "$dir\bin\$tool") -and (Get-FileHash "$dir\bin\$tool").Hash -eq (Get-FileHash "$root\bin\$tool").Hash) "bin\$tool installed from the package" }
+    Check ((Test-Path "$dir\LICENSE.txt") -and (Test-Path "$dir\THIRD-PARTY-NOTICES.txt")) 'license and third-party notices installed'
 
     # 2. upgrade to 0.0.2 without naming the folder: it must stay where it was
     Msi "/i `"$msi2`" MSIINSTALLPERUSER=1 ALLUSERS=`"`"" "$t\logs\install2.log"
     $e = @(Entries)
     Check ($e.Count -eq 1 -and $e[0].Version -eq '0.0.2') 'one uninstall entry after upgrade, 0.0.2'
     Check ((Test-Path "$dir\vid2gif-app.exe") -and (Get-FileHash "$dir\vid2gif-app.exe").Hash -eq (Get-FileHash $exe2).Hash) 'new exe in the same folder'
-    $toolLog = Get-Content (Join-Path ([IO.Path]::GetTempPath()) 'vid2gif-install.log') -Raw
-    Check (([regex]::Matches($toolLog, 'already installed')).Count -eq 3) 'upgrade: tools already installed'
+    Check ((@('yt-dlp.exe', 'ffmpeg.exe', 'deno.exe') | Where-Object { -not (Test-Path "$dir\bin\$_") }).Count -eq 0) 'upgrade: tools still installed'
     Check ((Get-Content "$dataDir\settings.json" -Raw) -match $marker) 'upgrade keeps settings'
-
-    # keep the tools for step 4, so they are not downloaded twice
-    Copy-Item "$dir\bin" "$t\bincache" -Recurse
 
     # 3. uninstall; the leftovers of an interrupted tool download must go too
     Set-Content "$dir\bin\ffmpeg.exe.new", "$dir\bin\.deno.download" 'partial'
@@ -108,24 +109,24 @@ try {
     $own = Join-Path $t 'my apps'
     New-Item -ItemType Directory "$own\bin" | Out-Null
     Set-Content "$own\keep.txt", "$own\bin\mine.txt" 'mine'
-    Copy-Item "$t\bincache\*" "$own\bin"  # same tools, so nothing is downloaded again
     Msi "/i `"$msi2`" MSIINSTALLPERUSER=1 ALLUSERS=`"`" APPLICATIONFOLDER=`"$own`"" "$t\logs\install3.log"
     Check (Test-Path "$own\vid2gif-app.exe") 'exe installed into existing folder'
     Msi "/x `"$msi2`"" "$t\logs\uninstall2.log"
     Check ((Test-Path "$own\keep.txt") -and -not (Test-Path "$own\vid2gif-app.exe")) 'existing folder and its file kept, exe removed'
     Check ((Test-Path "$own\bin\mine.txt") -and @(Get-ChildItem "$own\bin" -Force).Count -eq 1) 'existing bin keeps the user''s file, tools removed'
-    # 5. tools are optional features: none ticked downloads nothing; one ticked
+    # 5. tools are optional features: none ticked installs none; one ticked
     #    installs just that one; unticking it later in Change removes its file
     $sel = Join-Path $t 'sel'
     $own2 = @('MSIINSTALLPERUSER=1', 'ALLUSERS=""', "APPLICATIONFOLDER=`"$sel`"") -join ' '
     Msi "/i `"$msi2`" $own2 ADDLOCAL=Main" "$t\logs\install4.log"
-    Check ((Test-Path "$sel\vid2gif-app.exe") -and -not (Test-Path "$sel\bin")) 'no tool ticked: app installed, nothing downloaded'
-    Msi "/x `"$msi2`"" "$t\logs\uninstall3.log"
+    Check ((Test-Path "$sel\vid2gif-app.exe") -and -not (Test-Path "$sel\bin")) 'no tool ticked: app installed, no bin'
+    # a tool the app downloaded itself (first launch, nothing on PATH) goes too
     New-Item -ItemType Directory "$sel\bin" | Out-Null
-    Copy-Item "$t\bincache\ffmpeg.exe" "$sel\bin"  # so ffmpeg is not downloaded again
+    Set-Content "$sel\bin\yt-dlp.exe", "$sel\bin\.yt-dlp.download" 'app-downloaded'
+    Msi "/x `"$msi2`"" "$t\logs\uninstall3.log"
+    Check (-not (Test-Path "$sel\bin")) 'uninstall removes a tool the app downloaded, and bin'
     Msi "/i `"$msi2`" $own2 ADDLOCAL=Main,ToolFfmpeg" "$t\logs\install5.log"
     Check ((Test-Path "$sel\bin\ffmpeg.exe") -and -not (Test-Path "$sel\bin\yt-dlp.exe") -and -not (Test-Path "$sel\bin\deno.exe")) 'only the ticked tool is in bin'
-    Check ((Get-Content (Join-Path ([IO.Path]::GetTempPath()) 'vid2gif-install.log') -Raw) -notmatch 'yt-dlp|deno') 'the install step was only asked for ffmpeg'
     Msi "/i `"$msi2`" REMOVE=ToolFfmpeg" "$t\logs\change1.log"
     Check ((Test-Path "$sel\vid2gif-app.exe") -and -not (Test-Path "$sel\bin\ffmpeg.exe")) 'unticking ffmpeg in Change removes its file, keeps the app'
     Msi "/x `"$msi2`"" "$t\logs\uninstall4.log"
