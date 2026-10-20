@@ -53,7 +53,7 @@
       </div>
       <div class="group" role="group" aria-labelledby="lbl-where"><span class="lbl" id="lbl-where">Save to</span>
         <div class="where">
-          <div class="path" id="outdir"></div>
+          <input class="path" id="outdir" readonly aria-label="Save clips to">
           <button class="btn" type="button" id="change-folder">Change</button>
         </div>
       </div>
@@ -115,8 +115,16 @@
 
   <div class="group" role="group" aria-labelledby="lbl-bin"><span class="lbl" id="lbl-bin">Helper files</span>
     <div class="where">
-      <div class="path" id="bindir"></div>
-      <button class="btn" type="button" id="open-bin">Open</button>
+      <input class="path" id="bindir" readonly aria-label="Helper files folder">
+      <button class="btn" type="button" id="open-bin" aria-describedby="bin-note">Open</button>
+    </div>
+    <p class="note" id="bin-note" hidden></p>
+  </div>
+
+  <div class="group" role="group" aria-labelledby="lbl-db"><span class="lbl" id="lbl-db">Shelf database</span>
+    <div class="where">
+      <input class="path" id="dbpath" readonly aria-label="Shelf database file">
+      <button class="btn" type="button" id="open-db">Open</button>
     </div>
   </div>
 

@@ -20,6 +20,8 @@ const ADMIN = "The helper files couldn't be set up for your account. Ask an admi
 let slips = [];
 let settings = null;
 let binDir = "";
+let shelfPath = "";
+let pathTools = []; // tools used from PATH rather than the helper-files folder
 let running = false;
 let previewId = null;
 const previewTab = new Map(); // slip id -> format shown in its preview
@@ -722,11 +724,21 @@ function showSettings() {
   for (const r of document.querySelectorAll('input[name="fullSource"]')) r.checked = r.value === String(settings.fullSource);
   for (const b of document.querySelectorAll("#formats .chip")) b.setAttribute("aria-pressed", String(settings.formats.includes(b.dataset.format)));
   for (const b of document.querySelectorAll("#quality button")) b.setAttribute("aria-pressed", String(b.dataset.quality === settings.quality));
-  $("outdir").textContent = settings.outDir;
+  $("outdir").value = settings.outDir;
   $("outdir").title = settings.outDir;
   $("debug").checked = settings.debugMode;
-  $("bindir").textContent = binDir;
+  $("bindir").value = binDir;
   $("bindir").title = binDir;
+  // All three tools from PATH: the folder isn't used, so grey it out. Some: say which.
+  const unused = pathTools.length === 3;
+  $("bindir").classList.toggle("off", unused);
+  $("open-bin").disabled = unused;
+  $("bin-note").hidden = !pathTools.length;
+  $("bin-note").textContent = unused
+    ? "Not used: the app is using the yt-dlp, ffmpeg and deno already on your PATH."
+    : `${pathTools.join(", ")} come${pathTools.length === 1 ? "s" : ""} from your PATH instead.`;
+  $("dbpath").value = shelfPath;
+  $("dbpath").title = shelfPath;
 }
 
 async function save(next) {
@@ -763,7 +775,12 @@ $("change-folder").addEventListener("click", async () => {
 for (const r of document.querySelectorAll('input[name="theme"]')) r.addEventListener("change", () => save({ ...settings, theme: r.value }));
 for (const r of document.querySelectorAll('input[name="fullSource"]')) r.addEventListener("change", () => save({ ...settings, fullSource: r.value === "true" }));
 $("debug").addEventListener("change", (e) => save({ ...settings, debugMode: e.target.checked }));
+for (const p of document.querySelectorAll(".path")) {
+  p.addEventListener("focus", () => p.select());
+  p.addEventListener("click", () => p.select());
+}
 $("open-bin").addEventListener("click", () => App.OpenFolder(binDir));
+$("open-db").addEventListener("click", () => App.OpenFolder(shelfPath));
 $("open-logs").addEventListener("click", () => App.OpenLogs());
 $("settings").addEventListener("toggle", (e) => {
   $("gear").setAttribute("aria-expanded", String(e.newState === "open"));
@@ -931,6 +948,8 @@ on("setup", (e) => {
   else setBar(setupBar, -1, "Downloading…", false);
 });
 on("setup:done", () => {
+  pathTools = []; // the install put all three in the helper-files folder
+  showSettings();
   $("setup").hidden = true;
   appEl.inert = false;
   linkField.focus();
@@ -951,6 +970,8 @@ showSettings();
 const boot = await App.Boot();
 settings = boot.settings;
 binDir = boot.binDir;
+shelfPath = boot.shelfPath;
+pathTools = boot.pathTools || [];
 slips = S.fromShelf(boot.shelf?.clips || []);
 if (boot.shelf?.notice) notice(boot.shelf.notice);
 showSettings();

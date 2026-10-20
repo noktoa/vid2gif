@@ -112,6 +112,8 @@ type BootState struct {
 	Settings   settings.Settings `json:"settings"`
 	Themes     []string          `json:"themes"`
 	BinDir     string            `json:"binDir"` // shown read-only in Settings
+	ShelfPath  string            `json:"shelfPath"` // shown read-only in Settings
+	PathTools  []string          `json:"pathTools"` // tools resolved from outside BinDir, so Settings can grey it out
 	Shelf      ShelfState        `json:"shelf"`
 }
 
@@ -158,6 +160,7 @@ type Core struct {
 
 	store       *shelf.Store
 	scratchDir  string      // kept downloads, one folder per clip ID
+	shelfPath   string      // shelf.db, shown in Settings
 	shelfNotice string      // set when the saved shelf couldn't be opened
 	noticed     atomic.Bool // the store notice was sent
 
@@ -241,6 +244,17 @@ func ResolveTools(binDir string, pins deps.Pins, warn func(string)) (Tools, erro
 	return Tools{p[0], p[1], p[2]}, nil
 }
 
+// pathTools names the tools t found outside binDir (on PATH).
+func (c *Core) pathTools(t Tools) []string {
+	var out []string
+	for _, x := range []struct{ name, path string }{{"yt-dlp", t.YtDlp}, {"ffmpeg", t.FFmpeg}, {"deno", t.Deno}} {
+		if !within(c.binDir, x.path) {
+			out = append(out, x.name)
+		}
+	}
+	return out
+}
+
 // send drops events after Shutdown: the window is going away.
 func (c *Core) send(name string, data any) {
 	if c.base.Err() == nil {
@@ -280,7 +294,7 @@ func (c *Core) cachedTools() (Tools, error) {
 func (c *Core) Boot() BootState {
 	s := c.Current()
 	c.Files.Allow(s.OutDir)
-	st := BootState{Settings: s, Themes: settings.Themes, BinDir: c.binDir, Shelf: c.shelfState()}
+	st := BootState{Settings: s, Themes: settings.Themes, BinDir: c.binDir, ShelfPath: c.shelfPath, Shelf: c.shelfState()}
 	t, err := c.resolve()
 	if err != nil {
 		c.Log.Printf("tools: %v", err)
@@ -288,6 +302,7 @@ func (c *Core) Boot() BootState {
 		st.NeedsAdmin = !c.writable(c.binDir)
 	} else {
 		c.setTools(t)
+		st.PathTools = c.pathTools(t)
 	}
 	c.logHeader()
 	return st
@@ -583,7 +598,7 @@ func cleanFormats(in []string) []string {
 
 // OpenablePath decides whether OpenFolder may show p: the output folder or
 // anything under it, a made file (one the preview server issued a URL for),
-// or the helper-files folder. Titles reach the page, so p is untrusted: UNC
+// the helper-files folder, or the shelf database. Titles reach the page, so p is untrusted: UNC
 // and device paths (\\host, \\?\, \\.\) and relative paths are refused before
 // anything touches the disk (a stat of a UNC path already connects to it).
 func (c *Core) OpenablePath(p string) (path string, isDir, ok bool) {
@@ -592,7 +607,7 @@ func (c *Core) OpenablePath(p string) (path string, isDir, ok bool) {
 	}
 	p = filepath.Clean(p)
 	made := c.Files.Issued(p)
-	if !made && !within(c.Current().OutDir, p) && !within(c.binDir, p) {
+	if !made && !within(c.Current().OutDir, p) && !within(c.binDir, p) && !within(c.shelfPath, p) {
 		return "", false, false
 	}
 	fi, err := c.stat(p)

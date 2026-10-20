@@ -7,6 +7,7 @@
 // Shapes follow internal/appcore and internal/runner JSON tags exactly.
 // index.html?setup makes Boot report that the helper files are missing;
 // index.html?setup=fail also makes Install fail.
+// index.html?path=all or ?path=some reports the tools as coming from PATH (all three, or just ffmpeg).
 (() => {
   if (window.go) return; // the real bindings win
   const params = new URLSearchParams(location.search);
@@ -92,7 +93,8 @@
     async Boot() {
       return {
         needsSetup: params.has("setup"), needsAdmin: false,
-        settings: structuredClone(settings), themes: ["grey", "mint", "lilac"], binDir,
+        settings: structuredClone(settings), themes: ["grey", "mint", "lilac"], binDir, shelfPath: "C:\\Users\\you\\AppData\\Local\\vid2gif\\shelf.db",
+        pathTools: params.get("path") === "all" ? ["yt-dlp", "ffmpeg", "deno"] : params.get("path") === "some" ? ["ffmpeg"] : [],
         shelf: { clips: structuredClone(shelf), notice: "" },
       };
     },

@@ -34,7 +34,8 @@ type ShelfState struct {
 // in-memory shelf, and the notice says the saved one is gone.
 func (c *Core) openShelf(dir string) {
 	c.scratchDir = filepath.Join(dir, "scratch")
-	s, notice, err := shelf.Open(filepath.Join(dir, "shelf.db"))
+	c.shelfPath = filepath.Join(dir, "shelf.db")
+	s, notice, err := shelf.Open(c.shelfPath)
 	if err != nil {
 		c.Log.Printf("shelf: %v", err)
 		notice = storeMsg

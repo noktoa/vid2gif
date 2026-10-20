@@ -475,6 +475,24 @@ func TestBootReportsNeedsSetup(t *testing.T) {
 	}
 }
 
+func TestBootNamesToolsFromPATH(t *testing.T) {
+	c, _ := newTestCore(t)
+	own := func(n string) string { return filepath.Join(c.binDir, n) }
+	for _, tc := range []struct {
+		tools Tools
+		want  []string
+	}{
+		{Tools{own("yt-dlp"), own("ffmpeg"), own("deno")}, nil},
+		{Tools{own("yt-dlp"), `C:\scoop\ffmpeg.exe`, `C:\scoop\deno.exe`}, []string{"ffmpeg", "deno"}},
+		{Tools{`C:\a\yt-dlp.exe`, `C:\a\ffmpeg.exe`, `C:\a\deno.exe`}, []string{"yt-dlp", "ffmpeg", "deno"}},
+	} {
+		c.resolve = func() (Tools, error) { return tc.tools, nil }
+		if got := c.Boot().PathTools; !slices.Equal(got, tc.want) {
+			t.Errorf("%+v: PathTools = %v, want %v", tc.tools, got, tc.want)
+		}
+	}
+}
+
 func TestResolveToolsFallsBackToPATH(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	_, err := ResolveTools(t.TempDir(), deps.Pins{}, nil)
@@ -561,6 +579,12 @@ func TestOpenablePath(t *testing.T) {
 	}
 	if _, isDir, ok := c.OpenablePath(c.binDir); !ok || !isDir {
 		t.Error("helper-files folder not openable")
+	}
+	if err := os.WriteFile(c.shelfPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, isDir, ok := c.OpenablePath(c.shelfPath); !ok || isDir {
+		t.Error("shelf database not openable")
 	}
 	if runtime.GOOS == "windows" {
 		if _, _, ok := c.OpenablePath(strings.ToUpper(file)); !ok {
