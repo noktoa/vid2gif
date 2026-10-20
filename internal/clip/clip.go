@@ -98,7 +98,20 @@ func toolOutput(ctx context.Context) (stdout, stderr io.Writer) {
 	if w, _ := ctx.Value(toolOutKey{}).(io.Writer); w != nil {
 		return w, w
 	}
-	return os.Stdout, os.Stderr
+	return usable(os.Stdout), usable(os.Stderr)
+}
+
+// usable is f if it can be written to, else io.Discard. A GUI process (the
+// desktop app, built -H windowsgui) has no valid stdout or stderr: every write
+// fails with "The handle is invalid", which would fail the whole tool run.
+func usable(f *os.File) io.Writer {
+	if f == nil {
+		return io.Discard
+	}
+	if _, err := f.Stat(); err != nil {
+		return io.Discard
+	}
+	return f
 }
 
 func (p Pipeline) Run(ctx context.Context, o Opts) error {

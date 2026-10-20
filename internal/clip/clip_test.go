@@ -397,6 +397,10 @@ func TestMain(m *testing.M) {
 		os.Stdout.WriteString("TOOL-STDOUT\n")
 		os.Stderr.WriteString("ERROR: TOOL-STDERR\n")
 		os.Exit(1)
+	case "chatter-ok": // prints like yt-dlp does, then exits cleanly
+		os.Stdout.WriteString("TOOL-STDOUT\n")
+		os.Stderr.WriteString("TOOL-STDERR\n")
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
@@ -735,6 +739,46 @@ func TestWithToolOutputNilPassesThrough(t *testing.T) {
 func TestToolOutputDefaultsToTerminal(t *testing.T) {
 	if o, e := toolOutput(context.Background()); o != os.Stdout || e != os.Stderr {
 		t.Errorf("default tool output = %v, %v; want os.Stdout, os.Stderr", o, e)
+	}
+}
+
+// A GUI process (the desktop app, built -H windowsgui) has no usable stdout or
+// stderr: writing to them fails with "The handle is invalid". The default tool
+// output must then be discarded, or the first line yt-dlp prints kills the run.
+func TestToolOutputDefaultsToDiscardWhenStdioUnusable(t *testing.T) {
+	dead, err := os.CreateTemp(t.TempDir(), "dead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead.Close() // Stat and Write on it now fail, like an invalid handle
+	oldOut, oldErr := os.Stdout, os.Stderr
+	defer func() { os.Stdout, os.Stderr = oldOut, oldErr }()
+	os.Stdout, os.Stderr = dead, dead
+	if o, e := toolOutput(context.Background()); o != io.Discard || e != io.Discard {
+		t.Errorf("default tool output = %v, %v; want io.Discard for both", o, e)
+	}
+}
+
+// The same through a real process: with unusable stdio the tool's chatter must
+// not turn into a write error (the run then fails for its own reason here: the
+// stand-in downloads no clip file).
+func TestRunWithUnusableStdioIsNotAWriteError(t *testing.T) {
+	t.Setenv("VID2GIF_HELPER", "chatter-ok")
+	dead, err := os.CreateTemp(t.TempDir(), "dead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead.Close()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	defer func() { os.Stdout, os.Stderr = oldOut, oldErr }()
+	os.Stdout, os.Stderr = dead, dead
+	p := New(os.Args[0], os.Args[0], "", "", io.Discard)
+	o := baseOpts(t.TempDir(), "gif")
+	o.Name = "given"
+	collect(&o) // an event handler means progress scanning: stderr goes through a tee that writes to os.Stderr
+	runErr := p.Run(context.Background(), o)
+	if runErr == nil || strings.Contains(runErr.Error(), "closed") || strings.Contains(runErr.Error(), "handle") {
+		t.Errorf("err = %v; want a failure that is not a write to unusable stdio", runErr)
 	}
 }
 

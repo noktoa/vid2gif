@@ -178,7 +178,9 @@ func New(emit Emit, log *debuglog.Log, settingsPath, binDir string, pins deps.Pi
 		return lookup.Looker{YtDlp: t.YtDlp, Deno: t.Deno, Log: log}.Lookup(ctx, link)
 	}
 	c.clip = func(t Tools) runner.ClipRunner {
-		return clip.New(t.YtDlp, t.FFmpeg, t.Deno, "", io.Discard).WithLog(log)
+		// The app has no console: yt-dlp's own output goes nowhere (the debug
+		// log, when on, gets it through WithLog).
+		return clip.New(t.YtDlp, t.FFmpeg, t.Deno, "", io.Discard).WithToolOutput(io.Discard).WithLog(log)
 	}
 	c.stat = os.Stat
 	c.writable = canWrite
