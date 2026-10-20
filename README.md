@@ -23,7 +23,7 @@ That writes `gifs/<video title>_2-5.gif`. Keep `deps.json` in the same folder as
 If you'd rather not use a terminal, there is a Windows app: paste a link, pick the moment you want, and it makes the GIF (or WebP, MP4 or MOV) for you. It uses the same engine as the command line, so the files come out the same.
 
 - **Download:** the [releases page](https://github.com/noktoa/vid2gif/releases) has an installer, `vid2gif-<version>.msi`, and the plain `vid2gif-app.exe`, a single file you can run from any folder. On current Windows 10 and 11 neither needs anything installed first (the window uses WebView2, which comes with Windows).
-- **Helper tools:** yt-dlp, ffmpeg and deno (about 250 MB) are downloaded during install. If that step couldn't run (for example you were offline), or you use the plain .exe, the app downloads them on first launch and shows a progress screen while it does. It only happens once.
+- **Helper tools:** yt-dlp, ffmpeg and deno (about 250 MB) are downloaded during install. If that step couldn't run (for example you were offline), or you use the plain .exe, the app downloads them on first launch and shows a progress screen while it does. It only happens once. The app looks in its `bin` folder first, then on your PATH, so tools you already have work too: a copy in `bin` has to be the pinned version, but one found only on PATH is used whatever its version. If it isn't the pinned version, the troubleshooting log says so, and a version vid2gif wasn't tested with may fail.
 - **Where things live:** your settings, logs and the app's web view data are in `%LOCALAPPDATA%\vid2gif`. The helper tools are in a `bin` folder next to the app. (Set `VID2GIF_BIN` to put them somewhere else, as with the command line.)
 - **If something goes wrong:** turn on Settings → Troubleshooting. The app then writes one log file per run to `%LOCALAPPDATA%\vid2gif\logs` and keeps the newest 5. The log includes the video links you used, so look through it before you send it with a bug report.
 - **Windows only.** The Linux build is the command line.
@@ -33,8 +33,9 @@ If you'd rather not use a terminal, there is a Windows app: paste a link, pick t
 1. Run `vid2gif-<version>.msi`. The installer isn't code-signed, so Windows SmartScreen may say it "protected your PC". Click **More info**, then **Run anyway**. (Signing costs money every year, and this app is shared among friends.)
 2. Choose **Install just for you** (the default, no administrator rights needed) or **Install for all users of this machine** (Windows asks for an administrator).
 3. Keep the suggested folder or pick your own. Just for you installs to `%LOCALAPPDATA%\Programs\vid2gif`, for all users to `C:\Program Files\vid2gif`.
+4. To use your own yt-dlp, ffmpeg or deno instead, open **Customize** and untick it. Each tool's description says it may not work if its version differs from the one vid2gif was tested with.
 
-The installer adds a Start Menu shortcut and an entry in Settings → Apps → Installed apps, then downloads the helper tools into `<install folder>\bin`. An all-users install has one shared copy of the tools that only administrators can change. If a standard user is ever told the helper files couldn't be set up, an administrator can run **Repair** on vid2gif in Installed apps. Installing a newer MSI upgrades in place and keeps the tools and your settings.
+The installer adds a Start Menu shortcut and an entry in Settings → Apps → Installed apps, then downloads the ticked helper tools into `<install folder>\bin`. An unticked tool is found on your PATH instead. A silent upgrade (`msiexec /i ... /qn`) ticks everything again; add `ADDLOCAL=Main,ToolYtDlp,ToolFfmpeg,ToolDeno` with only the tools you want. An all-users install has one shared copy of the tools that only administrators can change. If a standard user is ever told the helper files couldn't be set up, an administrator can run **Repair** on vid2gif in Installed apps. Installing a newer MSI upgrades in place and keeps the tools and your settings.
 
 **Uninstalling** (from Installed apps) removes the program, the shortcut, the helper tools vid2gif put in `bin` (and any half-finished download of them), and `%LOCALAPPDATA%\vid2gif` (settings, logs, web view data). Only the app's own files are removed: `bin` and the install folder go only when nothing else is left in them, so other files in a folder you already had stay. In a `bin` folder only three files are ever touched: `yt-dlp.exe`, `ffmpeg.exe` and `deno.exe` (installing replaces them if they are not the pinned versions, and uninstalling removes them). It never removes the clips you made or your output folder. If a clip was interrupted by a crash, a `.vid2gif-tmp-*` folder may be left in the output folder; it is safe to delete.
 
@@ -64,7 +65,7 @@ The page inside the app is plain JavaScript in `cmd/vid2gif-app/frontend/`. Its 
 node --test "cmd/vid2gif-app/frontend/*.test.js"
 ```
 
-`vid2gif-app.exe --install-tools` downloads the helper tools without opening a window (the MSI runs it). It writes a log to `%TEMP%\vid2gif-install.log`. For an all-users install the MSI runs it as the system, so that log is in the system's temp folder (`C:\Windows\SystemTemp` on current Windows 11, `C:\Windows\Temp` on older versions), not your own `%TEMP%`.
+`vid2gif-app.exe --install-tools` downloads the helper tools without opening a window (the MSI runs it). `--install-tools=yt-dlp,deno` downloads only those (the MSI passes the ticked ones). It writes a log to `%TEMP%\vid2gif-install.log`. For an all-users install the MSI runs it as the system, so that log is in the system's temp folder (`C:\Windows\SystemTemp` on current Windows 11, `C:\Windows\Temp` on older versions), not your own `%TEMP%`.
 
 ## Examples
 

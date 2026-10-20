@@ -174,7 +174,9 @@ func New(emit Emit, log *debuglog.Log, settingsPath, binDir string, pins deps.Pi
 		sem:      make(chan struct{}, 4),
 		settings: s,
 	}
-	c.resolve = func() (Tools, error) { return ResolveTools(binDir, pins) }
+	c.resolve = func() (Tools, error) {
+		return ResolveTools(binDir, pins, func(s string) { log.Printf("warning: %s", s) })
+	}
 	c.lookup = func(ctx context.Context, t Tools, link string) (string, []lookup.Video, error) {
 		return lookup.Looker{YtDlp: t.YtDlp, Deno: t.Deno, Log: log}.Lookup(ctx, link)
 	}
@@ -199,24 +201,26 @@ func (w logWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// ResolveTools finds the pinned tools in binDir only: a tool missing there is
-// an error even if one is on PATH, and each must match its pin. The three
-// version checks run at once (yt-dlp alone takes most of a second).
-func ResolveTools(binDir string, pins deps.Pins) (Tools, error) {
+// ResolveTools finds each tool in binDir, then on PATH. One in binDir must
+// match its pin; one found only on PATH is the user's own and is used even if
+// it doesn't, with warn (may be nil) told how it differs. The three version
+// checks run at once (yt-dlp alone takes most of a second).
+func ResolveTools(binDir string, pins deps.Pins, warn func(string)) (Tools, error) {
 	r := deps.NewResolver(binDir)
-	var p [3]string
+	var p, notes [3]string
 	var errs [3]error
 	var wg sync.WaitGroup
 	for i, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
-		wg.Go(func() {
-			if _, errs[i] = os.Stat(filepath.Join(binDir, deps.ExeName(name))); errs[i] == nil {
-				p[i], errs[i] = r.Resolve(name, pins[name], false)
-			}
-		})
+		wg.Go(func() { p[i], notes[i], errs[i] = r.ResolveOwn(name, pins[name]) })
 	}
 	wg.Wait()
 	if err := errors.Join(errs[:]...); err != nil {
 		return Tools{}, err
+	}
+	for _, n := range notes {
+		if n != "" && warn != nil {
+			warn(n)
+		}
 	}
 	return Tools{p[0], p[1], p[2]}, nil
 }
@@ -289,7 +293,7 @@ func (c *Core) logHeader() {
 	for i, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
 		where := "not installed or not the pinned version"
 		if t != nil {
-			where = "verified at " + [3]string{t.YtDlp, t.FFmpeg, t.Deno}[i]
+			where = "using " +[3]string{t.YtDlp, t.FFmpeg, t.Deno}[i]
 		}
 		c.Log.Printf("tool: %s %s (pinned), %s", name, c.pins[name].Version, where)
 	}
