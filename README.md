@@ -12,7 +12,7 @@ Paste a link, pick the moment, get the clip. It uses the same engine as the comm
 
 Download `vid2gif-<version>.msi` (or the single-file `vid2gif-app.exe`) from the [releases page](https://github.com/noktoa/vid2gif/releases). Neither needs anything installed first. The MSI bundles yt-dlp, ffmpeg and deno; the plain .exe downloads them on first launch.
 
-Install steps, where files live, uninstalling and logs: [docs/desktop-app.md](docs/desktop-app.md).
+Install steps, where files live, uninstalling and logs: [the wiki](https://github.com/noktoa/vid2gif/wiki).
 
 ## Command line
 
@@ -46,7 +46,8 @@ Every flag, the quality presets, and how existing files are handled: [docs/cli.m
 ## More docs
 
 - [docs/cli.md](docs/cli.md): flags, quality presets, progress bar
-- [docs/desktop-app.md](docs/desktop-app.md): installing, uninstalling, building the app and MSI
+- [Wiki](https://github.com/noktoa/vid2gif/wiki): desktop app install, uninstall, troubleshooting
+- [docs/building.md](docs/building.md): building the desktop app and MSI
 - [docs/dependencies.md](docs/dependencies.md): pinned tools, where they live, upgrading them, licenses
 - [docs/development.md](docs/development.md): tests, CI, architecture
 

@@ -1,6 +1,6 @@
 # Development
 
-Build instructions: the CLI is in the [README](../README.md), the desktop app and MSI in [desktop-app.md](desktop-app.md#building).
+Build instructions: the CLI is in the [README](../README.md), the desktop app and MSI in [building.md](building.md).
 
 ## Tests
 
