@@ -285,6 +285,17 @@ func TestHelpListsCommandsFlagsAndExample(t *testing.T) {
 	}
 }
 
+func TestVersion(t *testing.T) {
+	defer func(v string) { version = v }(version)
+	version = "1.2.3"
+	for _, args := range [][]string{{"version"}, {"--version"}} {
+		var out, errb bytes.Buffer
+		if code := realMain(args, &out, &errb); code != 0 || out.String() != "vid2gif 1.2.3\n" {
+			t.Errorf("realMain(%v) = %d, %q", args, code, out.String())
+		}
+	}
+}
+
 func TestRealMainExitCodes(t *testing.T) {
 	cases := []struct {
 		args []string
