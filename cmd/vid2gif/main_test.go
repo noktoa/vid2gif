@@ -275,7 +275,8 @@ func TestHelpListsCommandsFlagsAndExample(t *testing.T) {
 		}
 		for _, want := range []string{
 			"vid2gif clip <url>", "vid2gif deps install", "Example:", "--start 1:23",
-			"-start", "-end", "-format", "-out", "-name", "-quality", "-overwrite", "-no-pin", "-full-source", "-no-progress",
+			"\n  --start ", "\n  --end ", "\n  --format ", "\n  --out ", "\n  --name ", "\n  --quality ",
+			"\n  --overwrite\n", "\n  --no-pin\n", "\n  --full-source\n", "\n  --no-progress\n",
 		} {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("realMain(%v) help is missing %q:\n%s", args, want, out.String())

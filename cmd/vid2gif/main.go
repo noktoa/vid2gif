@@ -54,9 +54,30 @@ func newClipFlags(a *clipArgs, start, end, formats *string) *flag.FlagSet {
 	fs.BoolVar(&a.NoProgress, "no-progress", false, "no progress bar (it is shown only when the output is a terminal)")
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), usage, "\nFlags for clip:\n")
-		fs.PrintDefaults()
+		printFlags(fs)
 	}
 	return fs
+}
+
+// printFlags is fs.PrintDefaults with "--" prefixes, to match the usage
+// text and error messages (PrintDefaults always prints a single hyphen).
+func printFlags(fs *flag.FlagSet) {
+	fs.VisitAll(func(f *flag.Flag) {
+		typ, usage := flag.UnquoteUsage(f)
+		line := "  --" + f.Name
+		if typ != "" {
+			line += " " + typ
+		}
+		line += "\n    \t" + usage
+		if f.DefValue != "" && f.DefValue != "false" {
+			if typ == "string" {
+				line += fmt.Sprintf(" (default %q)", f.DefValue)
+			} else {
+				line += fmt.Sprintf(" (default %s)", f.DefValue)
+			}
+		}
+		fmt.Fprintln(fs.Output(), line)
+	})
 }
 
 // clipArgs is a parsed `clip` command: the pipeline's options plus the
