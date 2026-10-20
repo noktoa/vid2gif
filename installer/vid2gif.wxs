@@ -8,7 +8,8 @@
   helper tools are optional features whose files are in the package, in
   <folder>\bin. An unticked tool is found on PATH by the app instead.
   Uninstall removes them (bin only if then empty) and, if the app downloaded
-  one itself, that too, and %LOCALAPPDATA%\vid2gif (neither on upgrade);
+  one itself, that too, and %LOCALAPPDATA%\vid2gif with its settings, logs,
+  saved shelf (shelf.db) and scratch\ downloads (neither on upgrade);
   the install folder itself only goes if it is empty.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"

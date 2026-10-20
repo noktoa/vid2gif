@@ -122,3 +122,25 @@ sequenceDiagram
 ```
 
 The temporary folder is created inside `--out`, so the final move is a rename. `deps install` is separate: it downloads the three tools from GitHub releases, checks their SHA-256 hashes, and puts them in `bin/`.
+
+## Saved shelf
+
+The shelf (ready, later and made clips) is saved in `%LOCALAPPDATA%\vid2gif\shelf.db`, with `shelf.db-wal` and `shelf.db-shm` beside it. A clip that isn't finished keeps its downloaded section in `%LOCALAPPDATA%\vid2gif\scratch\<clip id>\` until the clip finishes, is removed, or Clear cache runs.
+
+- Clear made removes only the made history (finished and failed clips). Ready and Later stay, and no files are touched.
+- Clear cache (Settings) deletes the whole store and `scratch\`. `settings.json` and the clips folder are not touched.
+- To reset by hand, close the app and delete `shelf.db*` and `scratch\`.
+- A damaged `shelf.db` is renamed `shelf.db.bad-<unix time>` (the copy is kept), and the app starts with an empty shelf and a notice.
+
+Manual checklist (the shelf has no automated test through the window):
+
+- Close mid-download, reopen: the clip is in Ready, and Make restarts it.
+- Close after the download finished: Make goes straight to encoding.
+- Kill the process during a run, reopen: check the clip is still on the shelf and its download is kept.
+- Type a time and close the window immediately, reopen: check whether the typed time was saved.
+- Delete a made file, reopen: the clip shows its file as missing.
+- Move the clips folder, reopen: made clips still show, with their files missing.
+- Damage `shelf.db`: the notice shows and a copy is kept as `shelf.db.bad-*`.
+- Clear made: Ready and Later stay, and the files stay.
+- Clear cache: the shelf is empty at once; `settings.json` and the clips are untouched.
+- Add 30 links, mark 5 ready, Make: only the 5 are made.
