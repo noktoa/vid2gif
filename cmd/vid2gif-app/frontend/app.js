@@ -168,7 +168,7 @@ function paint(li, s, eye, header) {
     row2.querySelector(".lead .note.hint").hidden = !(S.canRetry(s) && msg === GONE);
     row2.querySelector("button.retry").hidden = !S.canRetry(s);
   }
-  if (mode === "slip") paintTimes(li, s, title);
+  if (mode === "slip") { paintTimes(li, s, title); paintOptions(li, s); }
 
   li.classList.toggle("eye", s.id === eye);
   const open = s.id === previewId;
@@ -205,8 +205,47 @@ function buildRow2(s, mode) {
     join,
     el("label", { class: "time" }, el("span", { class: "lab", text: "Stop" }), input("end", "end")),
     el("div", { class: "state" }),
+    optionsBox(),
   ];
 }
+
+// optionsBox is a slip's own formats and quality, hidden under a one-line
+// summary; paintOptions fills it in. Clicks are handled once on the shelf.
+const QUALITY = { low: "Small file", medium: "Balanced", high: "Sharp" };
+function optionsBox() {
+  return el("details", { class: "opts" },
+    el("summary", {}),
+    el("div", { class: "group", role: "group", "aria-label": "Make this one as" },
+      el("div", { class: "chips" }, ...Object.entries(FMT).map(([f, name]) =>
+        el("button", { class: "chip", type: "button", "data-format": f, text: name }))),
+      el("div", { class: "seg" }, ...Object.entries(QUALITY).map(([q, name]) =>
+        el("button", { type: "button", "data-quality": q, text: name })))));
+}
+
+function paintOptions(li, s) {
+  const box = li.querySelector(".opts");
+  const quality = s.quality || settings.quality;
+  const formats = s.formats?.length ? s.formats : settings.formats;
+  box.querySelector("summary").textContent = `${formats.map((f) => FMT[f]).join(" + ")} · ${QUALITY[quality]}`;
+  for (const b of box.querySelectorAll(".chip")) b.setAttribute("aria-pressed", String(formats.includes(b.dataset.format)));
+  for (const b of box.querySelectorAll(".seg button")) b.setAttribute("aria-pressed", String(b.dataset.quality === quality));
+  box.inert = ["queued", "making"].includes(s.status?.kind); // already sent to Make
+}
+
+shelf.addEventListener("click", (e) => {
+  const b = e.target.closest(".opts button");
+  const id = b?.closest("li")?.dataset.id;
+  const s = slips.find((x) => x.id === id);
+  if (!s) return;
+  if (b.dataset.format) {
+    const formats = S.toggleFormat(s.formats, b.dataset.format);
+    if (formats === s.formats) return notice("At least one format stays on.");
+    slips = S.setOptions(slips, id, { formats });
+  } else {
+    slips = S.setOptions(slips, id, { quality: b.dataset.quality });
+  }
+  render();
+});
 
 const removeBtn = (id) => el("button", { class: "btn quiet", type: "button", text: "Remove", onclick: () => remove(id) });
 const retryBtn = (id) => el("button", { class: "btn retry", type: "button", text: "Try again", onclick: () => retry(id) });
@@ -444,7 +483,7 @@ async function add(text) {
     notice("That doesn't look like a video link. Copy it from the browser's address bar.");
     return false;
   }
-  slips = S.addPlaceholders(slips, placeholders);
+  slips = S.addPlaceholders(slips, placeholders, settings); // the panel's choices, as of now
   for (const p of placeholders) {
     if (buffered.has(p.id)) { // an instant failure beat Add's return
       applyReplace(buffered.get(p.id));
@@ -489,10 +528,8 @@ $("formats").addEventListener("click", (e) => {
   const b = e.target.closest(".chip");
   if (!b) return;
   const f = b.dataset.format;
-  const has = settings.formats.includes(f);
-  if (has && settings.formats.length === 1) return notice("At least one format stays on.");
-  const order = Object.keys(FMT);
-  const formats = has ? settings.formats.filter((x) => x !== f) : [...settings.formats, f].sort((a, b2) => order.indexOf(a) - order.indexOf(b2));
+  const formats = S.toggleFormat(settings.formats, f);
+  if (formats === settings.formats) return notice("At least one format stays on.");
   save({ ...settings, formats });
 });
 $("quality").addEventListener("click", (e) => {

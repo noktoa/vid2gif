@@ -13,19 +13,24 @@ import (
 
 	"vid2gif/internal/clip"
 	"vid2gif/internal/debuglog"
+	"vid2gif/internal/encode"
 	"vid2gif/internal/naming"
 	"vid2gif/internal/progress"
 	"vid2gif/internal/settings"
 )
 
 // Job is one slip to make. DurationSec is the whole video's length (0 = unknown).
+// Formats and Quality are this slip's own choices; empty or unknown means the
+// settings' value.
 type Job struct {
-	ID          string  `json:"id"`
-	URL         string  `json:"url"`
-	Title       string  `json:"title"`
-	Start       float64 `json:"start"`
-	End         float64 `json:"end"`
-	DurationSec float64 `json:"durationSec"`
+	ID          string   `json:"id"`
+	URL         string   `json:"url"`
+	Title       string   `json:"title"`
+	Start       float64  `json:"start"`
+	End         float64  `json:"end"`
+	DurationSec float64  `json:"durationSec"`
+	Formats     []string `json:"formats"`
+	Quality     string   `json:"quality"`
 }
 
 type File struct {
@@ -58,12 +63,12 @@ var now = time.Now // replaced by tests
 // minGap throttles making events to about 10 a second per job.
 const minGap = 100 * time.Millisecond
 
-// Run makes jobs in order with the settings' formats, quality, folder and
-// download size. A failed job never stops the next; a cancel marks the
-// current job ready and leaves the rest untouched. emit is called from the
-// pipeline's tool-output goroutines too, so it must not block. log may be nil.
+// Run makes jobs in order with each job's formats and quality (else the
+// settings'), and the settings' folder and download size. A failed job never
+// stops the next; a cancel marks the current job ready and leaves the rest
+// untouched. emit is called from the pipeline's tool-output goroutines too, so
+// it must not block. log may be nil.
 func Run(ctx context.Context, cr ClipRunner, jobs []Job, s settings.Settings, log *debuglog.Log, emit func(Event)) {
-	formats := pickFormats(s.Formats)
 	for _, j := range jobs {
 		if ctx.Err() != nil {
 			return
@@ -75,7 +80,14 @@ func Run(ctx context.Context, cr ClipRunner, jobs []Job, s settings.Settings, lo
 			emit(Event{JobID: j.ID, Kind: "failed", Message: folderMsg, Pct: -1, StagePct: -1})
 			continue
 		}
-		runJob(ctx, cr, j, s, formats, log, emit)
+		js := s
+		if len(j.Formats) > 0 {
+			js.Formats = j.Formats
+		}
+		if _, ok := encode.Presets[j.Quality]; ok {
+			js.Quality = j.Quality
+		}
+		runJob(ctx, cr, j, js, pickFormats(js.Formats), log, emit)
 	}
 }
 

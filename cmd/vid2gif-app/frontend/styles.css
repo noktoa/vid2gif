@@ -181,6 +181,15 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 }
 .join:hover { background-color: var(--paper); }
 
+/* a slip's own format and quality: one line until opened */
+.opts { flex: 1 1 100%; }
+.opts summary { cursor: pointer; width: fit-content; font-size: 13px; font-weight: 700; color: var(--ink-2); padding: 2px 0; }
+.opts summary:hover { color: var(--ink); }
+.opts[open] summary { margin-bottom: 6px; }
+.opts .group { gap: 6px; max-width: 420px; }
+.opts .chips { display: flex; flex-wrap: wrap; }
+.opts[inert] { opacity: .6; }
+
 .state { margin-left: auto; display: grid; gap: 4px; justify-items: end; text-align: right; min-width: 0; }
 .state.lead { margin-left: 0; justify-items: start; text-align: left; flex: 1 1 14ch; }
 .note { margin: 0; font-size: 13px; color: var(--ink-2); max-width: 32ch; text-wrap: pretty; }

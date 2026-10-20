@@ -5,6 +5,7 @@ import {
   addPlaceholders, replaceSlip, readyJobs, applyStatus, eyeId, makeLabel,
   formatDuration, stageLabel, barValue, needsCheck, makeCount, startRun, endRun, sourceTitle,
   setupProgress, formatSize, clipLength, canRetry, retrySlip, setEndKind, typed,
+  toggleFormat, setOptions,
 } from "./state.js";
 
 const slip = (id, more = {}) => ({
@@ -24,6 +25,33 @@ test("addPlaceholders appends placeholders, and the same link can be added again
   assert.equal(a[0].pending, true);
   const b = addPlaceholders(a, [{ id: "p3", url: "https://y/1" }, { id: "p4", url: "https://y/2" }]);
   assert.deepEqual(b.map((s) => s.id), ["p1", "p2", "p3", "p4"]);
+});
+
+test("a link starts from the panel's choices, keeps its own after, and a playlist's entries and a retry inherit them", () => {
+  const panel = { formats: ["gif"], quality: "medium" };
+  let s = addPlaceholders([], [{ id: "p1", url: "https://y/list" }], panel);
+  panel.formats.push("mp4"); // the panel changing later must not reach the slip
+  assert.deepEqual(s[0].formats, ["gif"]);
+  s = setOptions(s, "p1", { formats: ["webp"], quality: "high" });
+  s = replaceSlip(s, "p1", [slip("x"), slip("y")]);
+  assert.deepEqual(s.map((x) => [x.formats, x.quality]), [[["webp"], "high"], [["webp"], "high"]]);
+  s = addPlaceholders(s, [{ id: "p2", url: "https://y/2" }], { formats: ["mov"], quality: "low" }); // later link: new defaults
+  assert.deepEqual([s[2].formats, s[2].quality], [["mov"], "low"]);
+  const bad = replaceSlip(s, "p2", [slip("bad", { failed: true, url: "https://y/2" })]);
+  const again = retrySlip(bad, "bad", { id: "p3", url: "https://y/2" });
+  assert.deepEqual([again[2].formats, again[2].quality], [["mov"], "low"]);
+});
+
+test("readyJobs sends each slip's own formats and quality", () => {
+  const jobs = readyJobs([ready("a", { formats: ["mp4"], quality: "high" }), ready("b", { formats: ["gif", "webp"], quality: "low" })]);
+  assert.deepEqual(jobs.map((j) => [j.formats, j.quality]), [[["mp4"], "high"], [["gif", "webp"], "low"]]);
+});
+
+test("toggleFormat keeps the fixed order and never turns the last format off", () => {
+  assert.deepEqual(toggleFormat(["gif", "mp4"], "webp"), ["gif", "webp", "mp4"]);
+  assert.deepEqual(toggleFormat(["gif", "webp"], "gif"), ["webp"]);
+  const one = ["gif"];
+  assert.equal(toggleFormat(one, "gif"), one);
 });
 
 test("replaceSlip expands one placeholder into many in place", () => {
@@ -80,14 +108,14 @@ test("retrySlip result takes the usual replace: a successful lookup fills the pl
 
 test("readyJobs skips slips without a Start, unavailable, failed lookups, placeholders and bad times", () => {
   const s = [
-    ready("ok", { endText: "0:20", end: 20 }),
+    ready("ok", { endText: "0:20", end: 20, formats: ["gif"], quality: "medium" }),
     slip("nostart"),
     ready("gone", { unavailable: true }),
     ready("bad", { failed: true }),
     ready("ph", { pending: true }),
     ready("err", { timeMsg: "Stop must be after Start." }),
   ];
-  assert.deepEqual(readyJobs(s), [{ id: "ok", url: s[0].url, title: "T ok", start: 10, end: 20, durationSec: 300 }]);
+  assert.deepEqual(readyJobs(s), [{ id: "ok", url: s[0].url, title: "T ok", start: 10, end: 20, durationSec: 300, formats: ["gif"], quality: "medium" }]);
 });
 
 test("readyJobs includes finished slips again: done, partial, already and run-failed", () => {

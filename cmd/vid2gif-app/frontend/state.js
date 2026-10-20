@@ -8,6 +8,8 @@
 //   end       seconds into the video, 0 = to the end (also when endKind is "length")
 //   timeMsg   Validate's message, "" = fine
 //   checked   typed(slip) as last validated; start/end belong to it
+//   formats, quality  this slip's own output choices, copied from the left panel
+//             when the link was added; the panel only changes links added after
 //   status    null (ready) or {kind, stage, pct, stagePct, message, files}
 // Every function returns a new array; the input is never changed.
 
@@ -15,15 +17,16 @@ const blank = { source: "", startText: "", endText: "", endKind: "stop", start: 
 
 // addPlaceholders appends Add's placeholders. The same link can be on the shelf
 // more than once: each slip is its own clip (different Start/Stop).
-export const addPlaceholders = (slips, newSlips) =>
-  [...slips, ...newSlips.map((p) => ({ ...blank, ...p, pending: true }))];
+export const addPlaceholders = (slips, newSlips, { formats, quality } = {}) =>
+  [...slips, ...newSlips.map((p) => ({ ...blank, formats: [...(formats || [])], quality, ...p, pending: true }))];
 
 // replaceSlip swaps the placeholder id for newSlips in place. An unknown id
 // returns slips itself, so the caller can tell.
 export function replaceSlip(slips, id, newSlips) {
   const i = slips.findIndex((s) => s.id === id);
   if (i < 0) return slips;
-  const fresh = (newSlips || []).map((n) => ({ ...blank, ...n }));
+  const { formats, quality } = slips[i]; // a playlist's entries start from the link's choices
+  const fresh = (newSlips || []).map((n) => ({ ...blank, formats, quality, ...n }));
   return [...slips.slice(0, i), ...fresh, ...slips.slice(i + 1)];
 }
 
@@ -37,7 +40,8 @@ export const canRetry = (s) => !!(s.failed && s.url);
 export function retrySlip(slips, id, placeholder) {
   const i = slips.findIndex((s) => s.id === id);
   if (i < 0 || !canRetry(slips[i])) return slips;
-  return [...slips.slice(0, i), { ...blank, ...placeholder, pending: true }, ...slips.slice(i + 1)];
+  const { formats, quality } = slips[i];
+  return [...slips.slice(0, i), { ...blank, formats, quality, ...placeholder, pending: true }, ...slips.slice(i + 1)];
 }
 
 // canRun: a real video that isn't in the current run. A finished slip can be
@@ -63,8 +67,21 @@ export function makeCount(slips) {
 export function readyJobs(slips) {
   return slips.filter(isReady).map((s) => ({
     id: s.id, url: s.url, title: s.title, start: s.start, end: s.end, durationSec: s.durationSec,
+    formats: s.formats, quality: s.quality,
   }));
 }
+
+export const FORMAT_ORDER = ["gif", "webp", "mp4", "mov"];
+
+// toggleFormat flips one format in a list, in the fixed order. The last one
+// can't be turned off: the list is returned as it was.
+export function toggleFormat(formats, f) {
+  if (!formats.includes(f)) return FORMAT_ORDER.filter((x) => x === f || formats.includes(x));
+  return formats.length > 1 ? formats.filter((x) => x !== f) : formats;
+}
+
+// setOptions changes one slip's own formats/quality.
+export const setOptions = (slips, id, patch) => update(slips, id, (s) => ({ ...s, ...patch }));
 
 const update = (slips, id, fn) => {
   const i = slips.findIndex((s) => s.id === id);

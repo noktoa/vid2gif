@@ -97,6 +97,22 @@ func making(evs []Event, id string) []Event {
 	return out
 }
 
+func TestRunUsesEachJobsOwnFormatsAndQuality(t *testing.T) {
+	fakeClock(t, time.Second)
+	js := jobs(4)
+	js[1].Formats, js[1].Quality = []string{"mp4", "gif"}, "high"
+	js[2].Quality = "nonsense" // unknown: the settings' quality
+	js[3].Formats = []string{"nonsense"}
+	fr := &fakeRunner{fn: writeFiles}
+	collect(context.Background(), fr, js, testSettings(t, "webp"), nil)
+	want := []struct{ formats, quality string }{{"webp", "medium"}, {"mp4,gif", "high"}, {"webp", "medium"}, {"gif", "medium"}}
+	for i, w := range want {
+		if got := strings.Join(fr.calls[i].Formats, ","); got != w.formats || fr.calls[i].Quality != w.quality {
+			t.Errorf("job %d: formats %q quality %q, want %q %q", i+1, got, fr.calls[i].Quality, w.formats, w.quality)
+		}
+	}
+}
+
 func TestRunSequentialAndContinuesAfterFailure(t *testing.T) {
 	fakeClock(t, time.Second)
 	fr := &fakeRunner{fn: func(ctx context.Context, o clip.Opts) error {
