@@ -2,7 +2,8 @@
 
 # vid2gif
 
-<img width="981" height="676" alt="image" src="https://github.com/user-attachments/assets/03cb0dd2-1b7a-4a25-bced-7dcb08b68172" />
+<img width="984" height="677" alt="image" src="https://github.com/user-attachments/assets/9fa264a7-a03b-4355-819c-c9a8c0db39c6" />
+
 
 
 Cut a segment out of an online video and save it as a GIF, an animated WebP, an MP4, a MOV, or any mix. Give it a link and a start time (an end time is optional).
