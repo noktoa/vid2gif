@@ -476,8 +476,11 @@ func TestResolveToolsFallsBackToPATH(t *testing.T) {
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("err = %v, want not-exist when bin and PATH are both empty", err)
 	}
-	// The user's own tools on PATH run even though they aren't the pin
-	// (an empty one here), each with a warning.
+	// The user's own tools on PATH run even though they aren't the pin, each
+	// with a warning. The stubs print no version (or can't run at all on
+	// Windows), so a non-empty pin never matches; an empty pin would match
+	// yt-dlp and ffmpeg's empty output on Linux.
+	pins := deps.Pins{"yt-dlp": {Version: "1"}, "ffmpeg": {Version: "1"}, "deno": {Version: "1"}}
 	onPath := t.TempDir()
 	for _, n := range []string{"yt-dlp", "ffmpeg", "deno"} {
 		if err := os.WriteFile(filepath.Join(onPath, deps.ExeName(n)), []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -486,7 +489,7 @@ func TestResolveToolsFallsBackToPATH(t *testing.T) {
 	}
 	t.Setenv("PATH", onPath)
 	var warned []string
-	tools, err := ResolveTools(t.TempDir(), deps.Pins{}, func(s string) { warned = append(warned, s) })
+	tools, err := ResolveTools(t.TempDir(), pins, func(s string) { warned = append(warned, s) })
 	if err != nil || len(warned) != 3 || filepath.Dir(tools.YtDlp) != onPath {
 		t.Errorf("tools %+v, err %v, warnings %v; want the PATH tools and 3 warnings", tools, err, warned)
 	}
