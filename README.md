@@ -2,6 +2,9 @@
 
 # vid2gif
 
+<img width="981" height="676" alt="image" src="https://github.com/user-attachments/assets/03cb0dd2-1b7a-4a25-bced-7dcb08b68172" />
+
+
 Cut a segment out of an online video and save it as a GIF, an animated WebP, an MP4, a MOV, or any mix. Give it a link and a start time (an end time is optional).
 
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) fetches just the part you asked for and [ffmpeg](https://ffmpeg.org) encodes it. YouTube also needs [deno](https://deno.com). vid2gif runs all three at pinned versions, so results don't change when one of them updates.
