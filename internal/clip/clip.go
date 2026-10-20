@@ -56,9 +56,18 @@ type Opts struct {
 	NoPin      bool
 	FullSource bool // gif/webp only: download the best video, not the smallest one wide enough
 
+	// ScratchDir, if set, keeps the finished download so a later run with the
+	// same URL, range and source can skip it. clip never deletes it; "" =
+	// download into a temp folder that is removed on return.
+	ScratchDir string
+
 	OnEvent     func(Event) // nil = ignore
 	DurationSec float64     // length of the clip if known; 0 = unknown
 }
+
+// downloadMarker is written to ScratchDir once the download succeeded; it holds
+// the fingerprint of the request it answers.
+const downloadMarker = "download.ok"
 
 // Pipeline holds the side-effecting steps as fields so run() is testable
 // with fakes; New wires in the real yt-dlp and ffmpeg. progress reports 0..1.
@@ -223,11 +232,36 @@ func (p Pipeline) run(ctx context.Context, o Opts) error {
 	defer os.RemoveAll(tmp)
 
 	wantAudio := slices.ContainsFunc(todo, func(f string) bool { return f == "mp4" || f == "mov" })
-	p.log.Printf("run: %s %s", orDefault(p.ytdlp, "yt-dlp"), strings.Join(ytdlpDownloadArgs(o, p.ffmpeg, p.deno, tmp, wantAudio), " "))
-	// No StageDownload event yet: the stage starts at the first progress report.
-	clip, err := p.download(ctx, o, tmp, wantAudio, tick(StageDownload, ""))
-	if err != nil {
-		return fail("", cancelErr(ctx, err))
+	// With a ScratchDir the download lives there (kept for a resume) and only
+	// the encode part files use tmp, which must stay on the clips folder's volume.
+	dlDir, fingerprint, clip := tmp, "", ""
+	if o.ScratchDir != "" {
+		dlDir = o.ScratchDir
+		fingerprint = fmt.Sprintf("%v|%v|%v|%v|%v", o.URL, o.Start, o.End, o.FullSource, wantAudio)
+		marker := filepath.Join(dlDir, downloadMarker)
+		if b, err := os.ReadFile(marker); err == nil && string(b) == fingerprint {
+			clip, _ = pickClipFile(dlDir) // "" when the file is gone: download again
+		}
+		if clip == "" {
+			os.RemoveAll(dlDir)
+			if err := os.MkdirAll(dlDir, 0o755); err != nil {
+				return fail("", err)
+			}
+		}
+	}
+	if clip == "" {
+		p.log.Printf("run: %s %s", orDefault(p.ytdlp, "yt-dlp"), strings.Join(ytdlpDownloadArgs(o, p.ffmpeg, p.deno, dlDir, wantAudio), " "))
+		// No StageDownload event yet: the stage starts at the first progress report.
+		var err error
+		clip, err = p.download(ctx, o, dlDir, wantAudio, tick(StageDownload, ""))
+		if err != nil {
+			return fail("", cancelErr(ctx, err))
+		}
+		if o.ScratchDir != "" {
+			if err := os.WriteFile(filepath.Join(dlDir, downloadMarker), []byte(fingerprint), 0o644); err != nil {
+				return fail("", err)
+			}
+		}
 	}
 
 	wrote, failed := 0, 0

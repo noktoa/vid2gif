@@ -31,6 +31,10 @@ type Job struct {
 	DurationSec float64  `json:"durationSec"`
 	Formats     []string `json:"formats"`
 	Quality     string   `json:"quality"`
+
+	// ScratchDir keeps this job's finished download for a resume; set by the
+	// app, never by the page.
+	ScratchDir string `json:"-"`
 }
 
 type File struct {
@@ -136,7 +140,8 @@ func runJob(ctx context.Context, cr ClipRunner, j Job, s settings.Settings, form
 		Name:        naming.BuildName(j.Title, j.Start, j.End, s.Quality),
 		Quality:     s.Quality,
 		FullSource:  s.FullSource,
-		OnEvent:     onEvent,
+		ScratchDir:  j.ScratchDir,
+		OnEvent:    onEvent,
 		DurationSec: length,
 	})
 	// clip.Run has returned, so onEvent is no longer called: flush the last.

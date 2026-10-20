@@ -459,3 +459,14 @@ func TestRunLogsOriginalErrorWhenDebugOn(t *testing.T) {
 	// a nil log must not break anything
 	collect(context.Background(), fr, jobs(1), s, nil)
 }
+
+func TestJobScratchDirReachesTheClipRunner(t *testing.T) {
+	fakeClock(t, time.Second)
+	js := jobs(2)
+	js[0].ScratchDir = filepath.Join(t.TempDir(), "scratch")
+	fr := &fakeRunner{fn: writeFiles}
+	collect(context.Background(), fr, js, testSettings(t, "gif"), nil)
+	if fr.calls[0].ScratchDir != js[0].ScratchDir || fr.calls[1].ScratchDir != "" {
+		t.Errorf("ScratchDir = %q, %q; want %q, empty", fr.calls[0].ScratchDir, fr.calls[1].ScratchDir, js[0].ScratchDir)
+	}
+}

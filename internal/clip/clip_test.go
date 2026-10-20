@@ -994,3 +994,113 @@ func TestTeeStderrScansLinesAndKeepsOutput(t *testing.T) {
 		t.Errorf("lines = %q", lines)
 	}
 }
+
+func TestScratchKeptAndReusedByNextRun(t *testing.T) {
+	dir, scratch := t.TempDir(), filepath.Join(t.TempDir(), "scratch")
+	o := baseOpts(dir, "gif")
+	o.ScratchDir = scratch
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p, st := fakePipeline(io.Discard)
+	p.encode = func(c context.Context, in, out string, eo encode.Opts, _ func(float64)) error {
+		os.WriteFile(out, []byte("half"), 0o644)
+		cancel() // the user cancels mid-encode
+		return c.Err()
+	}
+	if err := p.Run(ctx, o); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v; want context.Canceled", err)
+	}
+	if st.downloads != 1 {
+		t.Fatalf("downloads = %d", st.downloads)
+	}
+	if _, err := os.Stat(filepath.Join(scratch, "clip.mkv")); err != nil {
+		t.Errorf("scratch clip not kept: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(scratch, "download.ok")); string(b) != "https://example.com/v|83|88|false|false" {
+		t.Errorf("marker = %q", b)
+	}
+	if got := dirNames(t, dir); len(got) != 0 {
+		t.Errorf("leftovers in OutDir: %v", got)
+	}
+
+	p, st = fakePipeline(io.Discard)
+	if err := p.Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if st.downloads != 0 {
+		t.Errorf("second run downloaded %d times; want it to reuse the scratch", st.downloads)
+	}
+	if got := dirNames(t, dir); !slices.Equal(got, []string{"My__Video_83-88.gif"}) {
+		t.Errorf("files = %v", got)
+	}
+	if _, err := os.Stat(scratch); err != nil {
+		t.Errorf("clip must not delete ScratchDir: %v", err)
+	}
+}
+
+func TestScratchWithoutMarkerIsRedownloaded(t *testing.T) {
+	dir, scratch := t.TempDir(), filepath.Join(t.TempDir(), "scratch")
+	os.MkdirAll(scratch, 0o755)
+	os.WriteFile(filepath.Join(scratch, "clip.mkv"), []byte("half-downloaded"), 0o644)
+	os.WriteFile(filepath.Join(scratch, "stale.txt"), []byte("x"), 0o644)
+	o := baseOpts(dir, "gif")
+	o.ScratchDir = scratch
+	p, st := fakePipeline(io.Discard)
+	if err := p.Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if st.downloads != 1 {
+		t.Errorf("downloads = %d; want 1", st.downloads)
+	}
+	if _, err := os.Stat(filepath.Join(scratch, "stale.txt")); err == nil {
+		t.Error("scratch was not emptied before the download")
+	}
+}
+
+func TestScratchWithDifferentFingerprintIsRedownloaded(t *testing.T) {
+	for name, change := range map[string]func(o *Opts){
+		"end":        func(o *Opts) { o.End = 90 },
+		"start":      func(o *Opts) { o.Start = 80 },
+		"fullSource": func(o *Opts) { o.FullSource = true },
+		"audio":      func(o *Opts) { o.Formats = []string{"gif", "mp4"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir, scratch := t.TempDir(), filepath.Join(t.TempDir(), "scratch")
+			o := baseOpts(dir, "gif")
+			o.ScratchDir = scratch
+			p, _ := fakePipeline(io.Discard)
+			if err := p.Run(context.Background(), o); err != nil {
+				t.Fatal(err)
+			}
+			os.RemoveAll(dir)
+			change(&o)
+			p, st := fakePipeline(io.Discard)
+			if err := p.Run(context.Background(), o); err != nil {
+				t.Fatal(err)
+			}
+			if st.downloads != 1 {
+				t.Errorf("downloads = %d; want a fresh download", st.downloads)
+			}
+		})
+	}
+}
+
+func TestEmptyScratchDirKeepsOldBehaviour(t *testing.T) {
+	dir := t.TempDir()
+	var tmpSeen string
+	p, _ := fakePipeline(io.Discard)
+	realDownload := p.download
+	p.download = func(c context.Context, o Opts, tmp string, a bool, pr func(float64)) (string, error) {
+		tmpSeen = tmp
+		return realDownload(c, o, tmp, a, pr)
+	}
+	if err := p.Run(context.Background(), baseOpts(dir, "gif")); err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(tmpSeen) != dir || !strings.HasPrefix(filepath.Base(tmpSeen), ".vid2gif-tmp-") {
+		t.Errorf("download dir = %q; want the OutDir temp folder", tmpSeen)
+	}
+	if got := dirNames(t, dir); !slices.Equal(got, []string{"My__Video_83-88.gif"}) {
+		t.Errorf("files = %v; want only the gif (temp removed, no marker folder)", got)
+	}
+}
