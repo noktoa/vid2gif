@@ -2,6 +2,7 @@ package deps
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,5 +130,37 @@ func TestResolveNotFound(t *testing.T) {
 	_, err := resolverWith(t.TempDir(), "", "").Resolve("yt-dlp", ytTool, false)
 	if err == nil || !strings.Contains(err.Error(), "deps install") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestResolveOwn(t *testing.T) {
+	// bin is held to the pin
+	base := t.TempDir()
+	makeBin(t, base, "yt-dlp")
+	if _, _, err := resolverWith(base, "", "2025.01.01\n").ResolveOwn("yt-dlp", ytTool); err == nil {
+		t.Error("a mismatched tool in bin must fail")
+	}
+	// PATH is the user's own: a different version runs, with a note
+	got, note, err := resolverWith(t.TempDir(), "/usr/bin/yt-dlp", "2025.01.01\n").ResolveOwn("yt-dlp", ytTool)
+	if err != nil || got != "/usr/bin/yt-dlp" || !strings.Contains(note, "2025.01.01") || !strings.Contains(note, "2026.08.19") {
+		t.Errorf("got %q, %q, %v", got, note, err)
+	}
+	if _, note, _ := resolverWith(t.TempDir(), "/usr/bin/yt-dlp", "2026.08.19\n").ResolveOwn("yt-dlp", ytTool); note != "" {
+		t.Errorf("matching version has note %q", note)
+	}
+	_, _, err = resolverWith(t.TempDir(), "", "").ResolveOwn("yt-dlp", ytTool)
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("err = %v, want not-exist", err)
+	}
+}
+
+func TestPinsOnly(t *testing.T) {
+	p := Pins{"yt-dlp": {Version: "1"}, "ffmpeg": {Version: "2"}, "deno": {Version: "3"}}
+	got := p.Only("yt-dlp,deno,nope,")
+	if len(got) != 2 || got["yt-dlp"].Version != "1" || got["deno"].Version != "3" {
+		t.Errorf("Only = %v", got)
+	}
+	if len(p.Only("")) != 0 {
+		t.Error("empty list must select nothing")
 	}
 }

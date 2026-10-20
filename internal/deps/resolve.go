@@ -2,6 +2,7 @@ package deps
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,4 +41,27 @@ func (r Resolver) Resolve(name string, t Tool, noPin bool) (string, error) {
 			name, t.Version, firstLine(out), path)
 	}
 	return path, nil
+}
+
+// ResolveOwn is Resolve for the desktop app: a tool in binDir must match its
+// pin, but one found only on PATH is the user's own and is used as is. note
+// says how it differs from the pin ("" when it doesn't). A tool in neither
+// place is an error wrapping fs.ErrNotExist.
+func (r Resolver) ResolveOwn(name string, t Tool) (path, note string, err error) {
+	if _, serr := os.Stat(filepath.Join(r.binDir, ExeName(name))); serr == nil {
+		path, err = r.Resolve(name, t, false)
+		return path, "", err
+	}
+	path, err = r.lookPath(name)
+	if err != nil {
+		return "", "", fmt.Errorf("%s not found in %s or on PATH: %w", name, r.binDir, fs.ErrNotExist)
+	}
+	out, err := r.version(path, name)
+	switch {
+	case err != nil:
+		note = fmt.Sprintf("%s: couldn't read its version (%v); using it anyway", path, err)
+	case !versionMatches(name, t.Version, out):
+		note = fmt.Sprintf("%s is %s, not the pinned %s; using it anyway", path, firstLine(out), t.Version)
+	}
+	return path, note, nil
 }

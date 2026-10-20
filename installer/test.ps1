@@ -114,6 +114,21 @@ try {
     Msi "/x `"$msi2`"" "$t\logs\uninstall2.log"
     Check ((Test-Path "$own\keep.txt") -and -not (Test-Path "$own\vid2gif-app.exe")) 'existing folder and its file kept, exe removed'
     Check ((Test-Path "$own\bin\mine.txt") -and @(Get-ChildItem "$own\bin" -Force).Count -eq 1) 'existing bin keeps the user''s file, tools removed'
+    # 5. tools are optional features: none ticked downloads nothing; one ticked
+    #    installs just that one; unticking it later in Change removes its file
+    $sel = Join-Path $t 'sel'
+    $own2 = @('MSIINSTALLPERUSER=1', 'ALLUSERS=""', "APPLICATIONFOLDER=`"$sel`"") -join ' '
+    Msi "/i `"$msi2`" $own2 ADDLOCAL=Main" "$t\logs\install4.log"
+    Check ((Test-Path "$sel\vid2gif-app.exe") -and -not (Test-Path "$sel\bin")) 'no tool ticked: app installed, nothing downloaded'
+    Msi "/x `"$msi2`"" "$t\logs\uninstall3.log"
+    New-Item -ItemType Directory "$sel\bin" | Out-Null
+    Copy-Item "$t\bincache\ffmpeg.exe" "$sel\bin"  # so ffmpeg is not downloaded again
+    Msi "/i `"$msi2`" $own2 ADDLOCAL=Main,ToolFfmpeg" "$t\logs\install5.log"
+    Check ((Test-Path "$sel\bin\ffmpeg.exe") -and -not (Test-Path "$sel\bin\yt-dlp.exe") -and -not (Test-Path "$sel\bin\deno.exe")) 'only the ticked tool is in bin'
+    Check ((Get-Content (Join-Path ([IO.Path]::GetTempPath()) 'vid2gif-install.log') -Raw) -notmatch 'yt-dlp|deno') 'the install step was only asked for ffmpeg'
+    Msi "/i `"$msi2`" REMOVE=ToolFfmpeg" "$t\logs\change1.log"
+    Check ((Test-Path "$sel\vid2gif-app.exe") -and -not (Test-Path "$sel\bin\ffmpeg.exe")) 'unticking ffmpeg in Change removes its file, keeps the app'
+    Msi "/x `"$msi2`"" "$t\logs\uninstall4.log"
     Write-Host 'PASS'
 } finally {
     # nothing was installed before the test (checked above), so any vid2gif

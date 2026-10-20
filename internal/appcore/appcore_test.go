@@ -450,17 +450,25 @@ func TestBootReportsNeedsSetup(t *testing.T) {
 	}
 }
 
-func TestResolveToolsNeverUsesPATH(t *testing.T) {
+func TestResolveToolsFallsBackToPATH(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	_, err := ResolveTools(t.TempDir(), deps.Pins{}, nil)
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("err = %v, want not-exist when bin and PATH are both empty", err)
+	}
+	// The user's own tools on PATH run even though they aren't the pin
+	// (an empty one here), each with a warning.
 	onPath := t.TempDir()
 	for _, n := range []string{"yt-dlp", "ffmpeg", "deno"} {
 		if err := os.WriteFile(filepath.Join(onPath, deps.ExeName(n)), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("PATH", onPath+string(os.PathListSeparator)+os.Getenv("PATH"))
-	_, err := ResolveTools(t.TempDir(), deps.Pins{})
-	if !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("err = %v, want not-exist for an empty bin folder", err)
+	t.Setenv("PATH", onPath)
+	var warned []string
+	tools, err := ResolveTools(t.TempDir(), deps.Pins{}, func(s string) { warned = append(warned, s) })
+	if err != nil || len(warned) != 3 || filepath.Dir(tools.YtDlp) != onPath {
+		t.Errorf("tools %+v, err %v, warnings %v; want the PATH tools and 3 warnings", tools, err, warned)
 	}
 }
 

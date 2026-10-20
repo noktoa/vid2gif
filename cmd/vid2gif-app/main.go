@@ -11,7 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -33,8 +33,10 @@ import (
 var assets embed.FS
 
 func main() {
-	if slices.Contains(os.Args[1:], "--install-tools") {
-		os.Exit(installTools())
+	for _, a := range os.Args[1:] {
+		if a == "--install-tools" || strings.HasPrefix(a, "--install-tools=") {
+			os.Exit(installTools(a))
+		}
 	}
 	root := dataRoot()
 	settingsPath := filepath.Join(root, "settings.json")
@@ -67,8 +69,10 @@ func main() {
 }
 
 // installTools puts the pinned tools in the exe's own bin folder, logging to
-// %TEMP%\vid2gif-install.log. 0 = installed (or already were), 1 = failed.
-func installTools() int {
+// %TEMP%\vid2gif-install.log. arg is "--install-tools" (all of them) or
+// "--install-tools=yt-dlp,deno" (just those; the MSI passes the ticked ones).
+// 0 = installed (or already were), 1 = failed.
+func installTools(arg string) int {
 	var out io.Writer = io.Discard
 	if f, err := os.Create(filepath.Join(os.TempDir(), "vid2gif-install.log")); err == nil {
 		defer f.Close()
@@ -77,6 +81,9 @@ func installTools() int {
 	dir := binDir()
 	fmt.Fprintf(out, "vid2gif %s: installing tools into %s\n", version, dir)
 	pins, err := deps.Parse(vid2gif.DepsJSON)
+	if _, list, ok := strings.Cut(arg, "="); ok {
+		pins = pins.Only(list)
+	}
 	if err == nil {
 		tenth := map[string]int64{}
 		err = deps.InstallAllProgress(pins, dir, out, func(tool string, done, total int64) {
