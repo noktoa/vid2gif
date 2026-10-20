@@ -448,7 +448,8 @@ func (c *Core) Validate(start, end string, endIsLength bool, durationSec float64
 }
 
 // Make starts a run unless one is going (then run:busy) or the app is
-// closing. The tools are re-checked first; if they fail, setup:needed.
+// closing. The tools are re-checked first; if they fail, setup:needed. Only
+// jobs whose saved clip is ready run, and finished ones are saved as made.
 func (c *Core) Make(jobs []runner.Job) {
 	c.mu.Lock()
 	if c.cancel != nil {
@@ -488,7 +489,10 @@ func (c *Core) run(ctx context.Context, cancel context.CancelFunc, done chan str
 	if !c.Files.Allow(s.OutDir) {
 		c.Log.Printf("make: previews unavailable for output folder %q", s.OutDir)
 	}
-	runner.Run(ctx, c.clip(t), jobs, s, c.Log, func(e runner.Event) { c.send("slip:status", c.status(e)) })
+	runner.Run(ctx, c.clip(t), c.readyJobs(jobs), s, c.Log, func(e runner.Event) {
+		c.record(e)
+		c.send("slip:status", c.status(e))
+	})
 }
 
 func (c *Core) status(e runner.Event) Status {

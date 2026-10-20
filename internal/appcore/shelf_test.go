@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"vid2gif/internal/clip"
 	"vid2gif/internal/debuglog"
 	"vid2gif/internal/deps"
 	"vid2gif/internal/lookup"
+	"vid2gif/internal/runner"
 	"vid2gif/internal/shelf"
 )
 
@@ -282,5 +284,221 @@ func TestStoreWriteFailureSendsOneNotice(t *testing.T) {
 	want := Message{"Couldn't save your shelf just now. It will keep working until you close the app."}
 	if len(notices) != 1 || notices[0] != want {
 		t.Errorf("notices = %v, want one %v", notices, want)
+	}
+}
+
+// saveReady puts clips in the ready lane, as the page does before Make.
+func saveReady(t *testing.T, c *Core, clips ...shelf.Clip) {
+	t.Helper()
+	for i := range clips {
+		clips[i].Lane = shelf.LaneReady
+	}
+	if err := c.Save(clips); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitRuns waits until n runs have finished.
+func waitRuns(t *testing.T, rec *recorder, n int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		count := 0
+		for _, e := range rec.all() {
+			if e.name == "run:finished" {
+				count++
+			}
+		}
+		if count >= n {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("fewer than %d runs finished; got %v", n, rec.names())
+}
+
+func blockUntilStopped(started chan<- clip.Opts) fakeClip {
+	return func(ctx context.Context, o clip.Opts) error {
+		started <- o
+		<-ctx.Done()
+		return ctx.Err()
+	}
+}
+
+func TestMakeOnlyRunsReadyClips(t *testing.T) {
+	c, rec := newTestCore(t)
+	saveReady(t, c, shelf.Clip{ID: "r", URL: "ready-url"}, shelf.Clip{ID: "m", URL: "made-url"})
+	c.store.Finish("m", "done", "", nil)
+	c.Save([]shelf.Clip{{ID: "l", Lane: shelf.LaneLater, URL: "later-url"}})
+	var ran []string
+	c.clip = func(Tools) runner.ClipRunner {
+		return fakeClip(func(_ context.Context, o clip.Opts) error { ran = append(ran, o.URL); return nil })
+	}
+	c.Make([]runner.Job{{ID: "l", URL: "later-url"}, {ID: "m", URL: "made-url"}, {ID: "ghost", URL: "ghost-url"}, {ID: "r", URL: "ready-url"}})
+	waitRuns(t, rec, 1)
+	if !slices.Equal(ran, []string{"ready-url"}) {
+		t.Errorf("ran %v, want only the ready clip", ran)
+	}
+}
+
+func TestMakeUsesStoredFormatsAndQualityAndGivesScratchDir(t *testing.T) {
+	c, rec := newTestCore(t)
+	saveReady(t, c, shelf.Clip{ID: "a", URL: "u", Formats: []string{"webp"}, Quality: "low"})
+	var got clip.Opts
+	c.clip = func(Tools) runner.ClipRunner {
+		return fakeClip(func(_ context.Context, o clip.Opts) error { got = o; return nil })
+	}
+	// The page asks for something else: the stored clip wins.
+	c.Make([]runner.Job{{ID: "a", URL: "u", Formats: []string{"gif", "mp4"}, Quality: "high", ScratchDir: "elsewhere"}})
+	waitRuns(t, rec, 1)
+	if !slices.Equal(got.Formats, []string{"webp"}) || got.Quality != "low" {
+		t.Errorf("formats %v quality %q, want the stored webp and low", got.Formats, got.Quality)
+	}
+	if want := filepath.Join(filepath.Dir(c.settingsPath), "scratch", "a"); got.ScratchDir != want {
+		t.Errorf("ScratchDir = %q, want %q", got.ScratchDir, want)
+	}
+}
+
+func TestFinishedClipsMoveToMadeWithoutAPage(t *testing.T) {
+	c, rec := newTestCore(t)
+	c.emit = func(name string, data any) { // no page is listening for clips, only the run end
+		if name == "run:finished" {
+			rec.emit(name, data)
+		}
+	}
+	saveReady(t, c, shelf.Clip{ID: "a", URL: "ua", Formats: []string{"gif"}}, shelf.Clip{ID: "b", URL: "ub", Formats: []string{"gif"}})
+	out := c.Current().OutDir
+	c.clip = func(Tools) runner.ClipRunner {
+		return fakeClip(func(_ context.Context, o clip.Opts) error {
+			os.MkdirAll(o.ScratchDir, 0o755)
+			os.WriteFile(filepath.Join(o.ScratchDir, "download.ok"), nil, 0o644)
+			if o.URL == "ub" {
+				return errors.New("boom")
+			}
+			o.OnEvent(clip.Event{Stage: clip.StageWrote, Path: filepath.Join(out, "a.gif"), Size: 7})
+			return nil
+		})
+	}
+	c.Make([]runner.Job{{ID: "a", URL: "ua"}, {ID: "b", URL: "ub"}})
+	waitRuns(t, rec, 1)
+	all, _ := c.store.Load()
+	if len(all) != 2 {
+		t.Fatalf("clips = %+v", all)
+	}
+	a, b := all[0], all[1]
+	if a.Lane != shelf.LaneMade || a.ResultKind != "done" || len(a.Files) != 1 || a.Files[0] != (shelf.File{Format: "gif", Path: filepath.Join(out, "a.gif"), Size: 7}) || a.MadeAt.IsZero() {
+		t.Errorf("a = %+v", a)
+	}
+	if b.Lane != shelf.LaneMade || b.ResultKind != "failed" || b.ResultMessage == "" {
+		t.Errorf("b = %+v", b)
+	}
+	for _, id := range []string{"a", "b"} {
+		if _, err := os.Stat(filepath.Join(c.scratchDir, id)); !os.IsNotExist(err) {
+			t.Errorf("scratch %s still there: %v", id, err)
+		}
+	}
+}
+
+func TestStoppedOrKilledClipStaysReadyAndDoesNotStartByItself(t *testing.T) {
+	c, rec := newTestCore(t)
+	saveReady(t, c, shelf.Clip{ID: "a", URL: "u"})
+	started := make(chan clip.Opts, 1)
+	c.clip = func(Tools) runner.ClipRunner { return blockUntilStopped(started) }
+	c.Make([]runner.Job{{ID: "a", URL: "u"}})
+	<-started
+	c.Stop()
+	waitRuns(t, rec, 1)
+
+	n, nrec := reboot(t, c)
+	ran := false
+	n.clip = func(Tools) runner.ClipRunner {
+		return fakeClip(func(context.Context, clip.Opts) error { ran = true; return nil })
+	}
+	got := n.Boot().Shelf.Clips
+	time.Sleep(50 * time.Millisecond)
+	if len(got) != 1 || got[0].Lane != shelf.LaneReady || got[0].ResultKind != "" {
+		t.Errorf("clips = %+v, want one still ready", got)
+	}
+	if ran || slices.Contains(nrec.names(), "slip:status") {
+		t.Errorf("a run started by itself: ran %v, events %v", ran, nrec.names())
+	}
+}
+
+func TestStopThenMakeReusesTheSavedDownload(t *testing.T) {
+	c, rec := newTestCore(t)
+	saveReady(t, c, shelf.Clip{ID: "a", URL: "u"})
+	started := make(chan clip.Opts, 1)
+	c.clip = func(Tools) runner.ClipRunner {
+		return fakeClip(func(ctx context.Context, o clip.Opts) error {
+			os.MkdirAll(o.ScratchDir, 0o755)
+			os.WriteFile(filepath.Join(o.ScratchDir, "download.ok"), nil, 0o644) // the download finished
+			return blockUntilStopped(started)(ctx, o)
+		})
+	}
+	c.Make([]runner.Job{{ID: "a", URL: "u"}})
+	first := <-started
+	c.Stop()
+	waitRuns(t, rec, 1)
+	if _, err := os.Stat(filepath.Join(first.ScratchDir, "download.ok")); err != nil {
+		t.Fatalf("stop lost the finished download: %v", err)
+	}
+
+	var second clip.Opts
+	c.clip = func(Tools) runner.ClipRunner {
+		return fakeClip(func(_ context.Context, o clip.Opts) error { second = o; return nil })
+	}
+	c.Make([]runner.Job{{ID: "a", URL: "u"}})
+	waitRuns(t, rec, 2)
+	if second.ScratchDir != first.ScratchDir || second.ScratchDir == "" {
+		t.Errorf("second ScratchDir %q, first %q; want the same", second.ScratchDir, first.ScratchDir)
+	}
+}
+
+func TestClearCacheRefusedWhileRunning(t *testing.T) {
+	c, rec := newTestCore(t)
+	saveReady(t, c, shelf.Clip{ID: "a", URL: "u"})
+	started := make(chan clip.Opts, 1)
+	c.clip = func(Tools) runner.ClipRunner { return blockUntilStopped(started) }
+	c.Make([]runner.Job{{ID: "a", URL: "u"}})
+	<-started
+	err := c.ClearCache()
+	if err == nil || err.Error() != "Wait for the clips to finish, or press Stop, before clearing." {
+		t.Errorf("ClearCache = %v", err)
+	}
+	if all, _ := c.store.Load(); len(all) != 1 {
+		t.Errorf("clips = %+v, want the shelf untouched", all)
+	}
+	c.Stop()
+	waitRuns(t, rec, 1)
+}
+
+func TestClearCacheWipesStoreAndScratchButNotSettingsOrOutput(t *testing.T) {
+	c, _ := newTestCore(t)
+	saveReady(t, c, shelf.Clip{ID: "a", URL: "u"}, shelf.Clip{ID: "b", URL: "u"})
+	c.store.Finish("b", "done", "", nil)
+	scratch := filepath.Join(c.scratchDir, "a")
+	os.MkdirAll(scratch, 0o755)
+	os.WriteFile(filepath.Join(scratch, "download.ok"), nil, 0o644)
+	out := c.Current().OutDir
+	os.MkdirAll(out, 0o755)
+	made := filepath.Join(out, "b.gif")
+	os.WriteFile(made, []byte("GIF89a"), 0o644)
+
+	if err := c.ClearCache(); err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := c.store.Load(); len(all) != 0 {
+		t.Errorf("clips = %+v, want none", all)
+	}
+	if _, err := os.Stat(c.scratchDir); !os.IsNotExist(err) {
+		t.Errorf("scratch still there: %v", err)
+	}
+	for _, p := range []string{c.settingsPath, made} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s did not survive: %v", p, err)
+		}
+	}
+	if err := c.Save([]shelf.Clip{{ID: "n", Lane: shelf.LaneLater, URL: "u"}}); err != nil {
+		t.Errorf("the shelf is not usable after clearing: %v", err)
 	}
 }

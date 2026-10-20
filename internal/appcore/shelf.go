@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"vid2gif/internal/runner"
 	"vid2gif/internal/shelf"
 )
 
@@ -112,6 +113,67 @@ func (c *Core) ClearMade() error {
 		return c.storeFailed(err)
 	}
 	return nil
+}
+
+// ClearCache forgets the whole shelf and every kept download. Settings and the
+// clips folder are not touched. It holds mu so a run can't start meanwhile.
+func (c *Core) ClearCache() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancel != nil {
+		return errors.New("Wait for the clips to finish, or press Stop, before clearing.")
+	}
+	if err := c.store.Wipe(); err != nil {
+		return c.storeFailed(err)
+	}
+	if err := os.RemoveAll(c.scratchDir); err != nil {
+		c.Log.Printf("shelf: remove scratch: %v", err)
+	}
+	return nil
+}
+
+// readyJobs keeps the jobs whose saved clip is in the ready lane, in the page's
+// order. The saved clip, not the page, decides the formats and quality, and
+// where its finished download is kept.
+func (c *Core) readyJobs(jobs []runner.Job) []runner.Job {
+	saved, err := c.store.Load()
+	if err != nil {
+		c.storeFailed(err)
+		return nil
+	}
+	var out []runner.Job
+	for _, j := range jobs {
+		i := slices.IndexFunc(saved, func(s shelf.Clip) bool { return s.ID == j.ID && s.Lane == shelf.LaneReady })
+		if i < 0 || !validID(j.ID) {
+			continue
+		}
+		j.Formats, j.Quality = saved[i].Formats, saved[i].Quality
+		j.ScratchDir = filepath.Join(c.scratchDir, j.ID)
+		out = append(out, j)
+	}
+	return out
+}
+
+// record saves a finished clip's result, then drops its kept download. A
+// cancelled clip ("ready") changes nothing: it stays ready for the next Make.
+// If the save fails the download is kept, so the clip can still resume.
+func (c *Core) record(e runner.Event) {
+	switch e.Kind {
+	case "done", "partial", "failed", "already":
+	default:
+		return
+	}
+	files := make([]shelf.File, 0, len(e.Files))
+	for _, f := range e.Files {
+		files = append(files, shelf.File{Format: f.Format, Path: f.Path, Size: f.Size})
+	}
+	if err := c.store.Finish(e.JobID, e.Kind, e.Message, files); err != nil {
+		c.storeFailed(err)
+		return
+	}
+	if err := os.RemoveAll(filepath.Join(c.scratchDir, e.JobID)); err != nil {
+		c.Log.Printf("shelf: remove scratch %s: %v", e.JobID, err)
+	}
 }
 
 // shelfState loads the saved clips for Boot. Every folder a made file sits in

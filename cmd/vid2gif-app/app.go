@@ -51,6 +51,7 @@ func (a *App) Stop()                          { a.core.Stop() }
 func (a *App) Save(clips []shelf.Clip) error  { return a.core.Save(clips) }
 func (a *App) Remove(id string)               { a.core.Remove(id) }
 func (a *App) ClearMade() error               { return a.core.ClearMade() }
+func (a *App) ClearCache() error              { return a.core.ClearCache() }
 
 func (a *App) Validate(start, end string, endIsLength bool, durationSec float64) appcore.Times {
 	return a.core.Validate(start, end, endIsLength, durationSec)

@@ -21,6 +21,7 @@ import (
 	"vid2gif/internal/lookup"
 	"vid2gif/internal/runner"
 	"vid2gif/internal/settings"
+	"vid2gif/internal/shelf"
 )
 
 type event struct {
@@ -280,6 +281,7 @@ func TestMakeStopIsNotAFailureAndRejectsSecondMake(t *testing.T) {
 		})
 	}
 	jobs := []runner.Job{{ID: "a", URL: "u", Title: "t", Start: 1, End: 2}, {ID: "b", URL: "u", Start: 1}}
+	saveReady(t, c, shelf.Clip{ID: "a", URL: "u"}, shelf.Clip{ID: "b", URL: "u"})
 	c.Make(jobs)
 	<-started
 	c.Make(jobs) // still running
@@ -323,6 +325,7 @@ func TestMakeNeedsSetupWhenToolsMissing(t *testing.T) {
 	c.clip = func(Tools) runner.ClipRunner {
 		return fakeClip(func(context.Context, clip.Opts) error { ran = true; return nil })
 	}
+	saveReady(t, c, shelf.Clip{ID: "a", URL: "u"})
 	c.Make([]runner.Job{{ID: "a", URL: "u", Start: 1}})
 	rec.wait(t, "run:finished")
 	if !slices.Contains(rec.names(), "setup:needed") || ran {
@@ -346,6 +349,7 @@ func TestShutdownCancelsAndWaitsForCleanup(t *testing.T) {
 			return ctx.Err()
 		})
 	}
+	saveReady(t, c, shelf.Clip{ID: "a", URL: "u"})
 	c.Make([]runner.Job{{ID: "a", URL: "u", Start: 1, End: 2}})
 	<-started
 	c.Shutdown(2 * time.Second)
