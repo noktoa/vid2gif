@@ -275,11 +275,23 @@ func TestHelpListsCommandsFlagsAndExample(t *testing.T) {
 		}
 		for _, want := range []string{
 			"vid2gif clip <url>", "vid2gif deps install", "Example:", "--start 1:23",
-			"-start", "-end", "-format", "-out", "-name", "-quality", "-overwrite", "-no-pin", "-full-source", "-no-progress",
+			"\n  --start ", "\n  --end ", "\n  --format ", "\n  --out ", "\n  --name ", "\n  --quality ",
+			"\n  --overwrite\n", "\n  --no-pin\n", "\n  --full-source\n", "\n  --no-progress\n",
 		} {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("realMain(%v) help is missing %q:\n%s", args, want, out.String())
 			}
+		}
+	}
+}
+
+func TestVersion(t *testing.T) {
+	defer func(v string) { version = v }(version)
+	version = "1.2.3"
+	for _, args := range [][]string{{"version"}, {"--version"}} {
+		var out, errb bytes.Buffer
+		if code := realMain(args, &out, &errb); code != 0 || out.String() != "vid2gif 1.2.3\n" {
+			t.Errorf("realMain(%v) = %d, %q", args, code, out.String())
 		}
 	}
 }

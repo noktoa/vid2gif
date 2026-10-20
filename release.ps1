@@ -25,14 +25,14 @@ New-Item -ItemType Directory $dist | Out-Null
 
 Write-Host 'Building vid2gif.exe...'
 $env:GOOS = 'windows'; $env:GOARCH = 'amd64'
-go build -trimpath -ldflags '-s -w' -o "$dist\vid2gif.exe" ./cmd/vid2gif
+$ver = $tag.TrimStart('v')
+go build -trimpath -ldflags "-s -w -X main.version=$ver" -o "$dist\vid2gif.exe" ./cmd/vid2gif
 if ($LASTEXITCODE) { throw 'go build failed' }
 # deps.json must sit next to the exe, so it ships with it
 Copy-Item deps.json $dist
 
 # the desktop app embeds deps.json, so it ships alone
 Write-Host 'Building vid2gif-app.exe...'
-$ver = $tag.TrimStart('v')
 # main.version is what the troubleshooting log reports ("vid2gif 0.1.0 on Windows ...")
 go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w -X main.version=$ver" -o "$dist\vid2gif-app.exe" ./cmd/vid2gif-app
 if ($LASTEXITCODE) { throw 'go build (app) failed' }
