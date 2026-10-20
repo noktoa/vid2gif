@@ -20,3 +20,8 @@ ffmpeg   GNU General Public License. This is the "gpl" build from the yt-dlp
 
 deno     MIT License, Copyright the Deno authors
          https://github.com/denoland/deno
+
+Linked into vid2gif-app.exe itself (a Go library, not a separate program):
+
+modernc.org/sqlite   BSD-3-Clause License, Copyright the modernc.org/sqlite Authors
+         https://gitlab.com/cznic/sqlite
