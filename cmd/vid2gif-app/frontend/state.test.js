@@ -5,11 +5,11 @@ import {
   addPlaceholders, replaceSlip, readyJobs, applyStatus, eyeId, makeLabel,
   formatDuration, stageLabel, barValue, needsCheck, makeCount, startRun, endRun, sourceTitle,
   setupProgress, formatSize, clipLength, canRetry, retrySlip, setEndKind, typed,
-  toggleFormat, setOptions,
+  toggleFormat, setOptions, fromShelf, inLane, madeVisible, markReady, markAllReady, moveToLater, makeAgain, stampFor,
 } from "./state.js";
 
 const slip = (id, more = {}) => ({
-  id, url: "https://v.example/" + id, title: "T " + id, thumbnailUrl: "", durationSec: 300,
+  id, lane: "ready", url: "https://v.example/" + id, title: "T " + id, thumbnailUrl: "", durationSec: 300,
   unavailable: false, reason: "", failed: false, message: "",
   startText: "", endText: "", start: null, end: 0, timeMsg: "", checked: "|", status: null, ...more,
 });
@@ -298,4 +298,100 @@ test("setEndKind rewrites a validated end to match, and clears one that is not v
 test("a length slip needs its own check, even with the same text", () => {
   const s = ready("a", { endText: "0:05", checked: "0:10|0:05", endKind: "length" });
   assert.deepEqual(needsCheck([s]), ["a"]);
+});
+
+const ids = (slips) => slips.map((s) => s.id);
+
+test("readyJobs, needsCheck and makeCount only look at the Ready lane", () => {
+  const s = [ready("r"), ready("l", { lane: "later" }), ready("m", { lane: "made" }), slip("l2", { lane: "later", startText: "5" }), slip("r2", { startText: "5" })];
+  assert.deepEqual(ids(readyJobs(s)), ["r"]);
+  assert.deepEqual(needsCheck(s), ["r2"]);
+  assert.equal(makeCount(s), 2);
+});
+
+test("new links land in Later, and a replaced or retried slip keeps its lane", () => {
+  let s = addPlaceholders([], [{ id: "p", url: "https://y/1" }]);
+  assert.equal(s[0].lane, "later");
+  s = replaceSlip([{ ...s[0], lane: "ready" }], "p", [slip("x", { lane: "later" }), slip("y", { lane: "later" })]);
+  assert.deepEqual(s.map((v) => v.lane), ["ready", "ready"]);
+  const bad = [slip("bad", { lane: "later", failed: true })];
+  assert.equal(retrySlip(bad, "bad", { id: "p2", url: bad[0].url })[0].lane, "later");
+});
+
+test("markAllReady moves only the valid Later slips, in order, and leaves one with no Start in Later", () => {
+  const s = [ready("r"), ready("a", { lane: "later" }), slip("nostart", { lane: "later" }), ready("b", { lane: "later" }), ready("m", { lane: "made" })];
+  const out = markAllReady(s);
+  assert.deepEqual(inLane(out, "ready").map((v) => v.id), ["r", "a", "b"]);
+  assert.deepEqual(ids(inLane(out, "later")), ["nostart"]);
+  assert.deepEqual(ids(inLane(out, "made")), ["m"]);
+  assert.equal(s[1].lane, "later"); // input untouched
+});
+
+test("markReady moves only the named ids, and only the valid ones", () => {
+  const s = [ready("a", { lane: "later" }), ready("b", { lane: "later" }), ready("stale", { lane: "later", checked: "x|" }), ready("m", { lane: "made" })];
+  const out = markReady(s, ["b", "stale", "m"]);
+  assert.deepEqual(ids(inLane(out, "ready")), ["b"]);
+  assert.deepEqual(ids(inLane(out, "later")), ["a", "stale"]);
+  assert.equal(inLane(out, "made")[0].id, "m");
+});
+
+test("moveToLater changes only the lane", () => {
+  const s = [ready("a"), ready("b")];
+  const out = moveToLater(s, "a");
+  assert.deepEqual(out[0], { ...s[0], lane: "later" });
+  assert.equal(out[1], s[1]);
+  assert.equal(moveToLater(s, "nope"), s);
+});
+
+test("applyStatus puts a finished slip in Made, last, and a made slip cannot be run", () => {
+  for (const kind of ["done", "partial", "failed", "already"]) {
+    const out = applyStatus([ready("a"), ready("b")], ev("a", kind));
+    assert.equal(out[1].lane, "made");
+    assert.deepEqual(ids(out), ["b", "a"]);
+  }
+  const made = applyStatus([ready("a")], ev("a", "done"));
+  assert.deepEqual(readyJobs(made), []);
+  assert.deepEqual(needsCheck(made.map((v) => ({ ...v, checked: "" }))), []);
+  assert.equal(applyStatus([ready("a")], ev("a", "making", { stage: "gif" }))[0].lane, "ready");
+});
+
+test("makeAgain appends a fresh copy to Later and leaves the made slip alone", () => {
+  const f = [{ format: "gif", path: "p", size: 1, url: "/out/x" }];
+  const made = ready("a", { lane: "made", resultKind: "done", filesMissing: true, formats: ["gif"], quality: "high", endText: "0:20", end: 20, status: { kind: "done", files: f } });
+  const s = [made, ready("z")];
+  const out = makeAgain(s, "a", "n1");
+  assert.equal(out[0], made);
+  assert.equal(out.length, 3);
+  const c = out[2];
+  assert.deepEqual([c.id, c.lane, c.status, c.resultKind, c.filesMissing], ["n1", "later", null, "", false]);
+  assert.deepEqual([c.url, c.startText, c.endText, c.start, c.end, c.formats, c.quality, c.checked], [made.url, "0:10", "0:20", 10, 20, ["gif"], "high", made.checked]);
+  assert.equal(makeAgain(s, "nope", "n2"), s);
+});
+
+test("madeVisible is newest first and shows 5 unless showAll", () => {
+  const s = [ready("r"), ...["a", "b", "c", "d", "e", "f", "g"].map((i) => ready(i, { lane: "made" }))];
+  assert.deepEqual(ids(madeVisible(s, false)), ["g", "f", "e", "d", "c"]);
+  assert.deepEqual(ids(madeVisible(s, true)), ["g", "f", "e", "d", "c", "b", "a"]);
+});
+
+test("fromShelf rebuilds slips and a made clip keeps its files and what was missing", () => {
+  const f = [{ format: "gif", path: "C:\o\a.gif", size: 10, url: "/out/a.gif" }];
+  const saved = [
+    { id: "m", lane: "made", url: "https://y/1", title: "T", startText: "0:10", endText: "", endKind: "stop", start: 10, end: 0, timeMsg: "", checked: "0:10|", formats: ["gif"], quality: "high",
+      resultKind: "partial", resultMessage: "The MP4 couldn't be made.", files: f, filesMissing: true, createdAt: "2026-01-01T00:00:00Z", madeAt: "2026-01-02T00:00:00Z" },
+    { id: "l", lane: "later", url: "https://y/2", title: "U", startText: "", start: null, formats: null, resultKind: "", files: null, filesMissing: false },
+  ];
+  const [m, l] = fromShelf(saved);
+  assert.deepEqual(m.status, { kind: "partial", message: "The MP4 couldn't be made.", files: f, stage: "", pct: 1, stagePct: -1 });
+  assert.deepEqual([m.lane, m.filesMissing, m.resultKind, m.formats, m.quality, m.start], ["made", true, "partial", ["gif"], "high", 10]);
+  assert.deepEqual([l.lane, l.status, l.start, l.formats, l.pending, l.failed], ["later", null, null, [], undefined, undefined]);
+  assert.equal(l.endKind, "stop"); // page-side defaults still apply
+});
+
+test("stampFor labels a made slip", () => {
+  const k = (kind) => stampFor({ status: { kind } });
+  assert.deepEqual(k("done"), { label: "DONE", tone: "good" });
+  assert.deepEqual(k("already"), { label: "DONE", tone: "good" });
+  assert.deepEqual(k("partial"), { label: "PARTLY", tone: "bad" });
+  assert.deepEqual(k("failed"), { label: "FAILED", tone: "bad" });
 });

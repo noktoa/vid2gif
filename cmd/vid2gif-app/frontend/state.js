@@ -1,5 +1,6 @@
 // Pure slip-list logic for the main window; app.js does the DOM. A slip is an
 // appcore.Slip plus the page's own fields:
+//   lane      "ready" (Make sends it), "later" (parked; new links start here) or "made" (finished)
 //   pending   placeholder from Add, waiting for slips:replace
 //   source    playlist title or "Pasted links"
 //   startText, endText  what the user typed
@@ -11,9 +12,11 @@
 //   formats, quality  this slip's own output choices, copied from the left panel
 //             when the link was added; the panel only changes links added after
 //   status    null (ready) or {kind, stage, pct, stagePct, message, files}
+//   resultKind  how a made slip ended (done|partial|failed|already), "" until then
+//   filesMissing  a made slip's saved files are no longer on disk
 // Every function returns a new array; the input is never changed.
 
-const blank = { source: "", startText: "", endText: "", endKind: "stop", start: null, end: 0, timeMsg: "", checked: "|", status: null };
+const blank = { lane: "later", resultKind: "", filesMissing: false, source: "", startText: "", endText: "", endKind: "stop", start: null, end: 0, timeMsg: "", checked: "|", status: null };
 
 // addPlaceholders appends Add's placeholders. The same link can be on the shelf
 // more than once: each slip is its own clip (different Start/Stop).
@@ -26,7 +29,7 @@ export function replaceSlip(slips, id, newSlips) {
   const i = slips.findIndex((s) => s.id === id);
   if (i < 0) return slips;
   const { formats, quality } = slips[i]; // a playlist's entries start from the link's choices
-  const fresh = (newSlips || []).map((n) => ({ ...blank, formats, quality, ...n }));
+  const fresh = (newSlips || []).map((n) => ({ ...blank, formats, quality, ...n, lane: slips[i].lane }));
   return [...slips.slice(0, i), ...fresh, ...slips.slice(i + 1)];
 }
 
@@ -40,21 +43,21 @@ export const canRetry = (s) => !!(s.failed && s.url);
 export function retrySlip(slips, id, placeholder) {
   const i = slips.findIndex((s) => s.id === id);
   if (i < 0 || !canRetry(slips[i])) return slips;
-  const { formats, quality } = slips[i];
-  return [...slips.slice(0, i), { ...blank, formats, quality, ...placeholder, pending: true }, ...slips.slice(i + 1)];
+  const { formats, quality, lane } = slips[i];
+  return [...slips.slice(0, i), { ...blank, formats, quality, ...placeholder, lane, pending: true }, ...slips.slice(i + 1)];
 }
 
 // canRun: a real video that isn't in the current run. A finished slip can be
 // made again (another quality or format makes a new file; the same one is
 // answered "already" before any download).
-const canRun = (s) => !s.pending && !s.unavailable && !s.failed && !["queued", "making"].includes(s.status?.kind);
+const canRun = (s) => s.lane !== "made" && !s.pending && !s.unavailable && !s.failed && !["queued", "making"].includes(s.status?.kind);
 export const typed = (s) => s.startText + "|" + s.endText + (s.endKind === "length" ? "|length" : "");
 const isReady = (s) => canRun(s) && s.start !== null && !s.timeMsg && s.checked === typed(s);
 
 // needsCheck: slips whose typed times haven't been validated yet; Make
 // validates these first so it never sends stale start/end.
 export function needsCheck(slips) {
-  return slips.filter((s) => canRun(s) && s.startText.trim() && s.checked !== typed(s)).map((s) => s.id);
+  return slips.filter((s) => s.lane === "ready" && canRun(s) && s.startText.trim() && s.checked !== typed(s)).map((s) => s.id);
 }
 
 // makeCount: what the Make label counts, ready slips plus ones Make will check first.
@@ -65,7 +68,7 @@ export function makeCount(slips) {
 // readyJobs is what Make sends: runner.Job for each slip that can be made with
 // validated times.
 export function readyJobs(slips) {
-  return slips.filter(isReady).map((s) => ({
+  return slips.filter((s) => s.lane === "ready" && isReady(s)).map((s) => ({
     id: s.id, url: s.url, title: s.title, start: s.start, end: s.end, durationSec: s.durationSec,
     formats: s.formats, quality: s.quality,
   }));
@@ -107,7 +110,7 @@ export function setEndKind(slips, id, kind) {
 // applyStatus folds one slip:status event into the list. Files always come
 // from the event: a new run's result replaces the previous run's.
 export function applyStatus(slips, e) {
-  return update(slips, e.jobId, (s) => {
+  const out = update(slips, e.jobId, (s) => {
     if (e.kind === "ready") return { ...s, status: null };
     const files = e.files || [];
     if (e.kind === "making") {
@@ -115,9 +118,59 @@ export function applyStatus(slips, e) {
       const pct = e.pct < 0 ? -1 : Math.max(prev, e.pct);
       return { ...s, status: { kind: "making", stage: e.stage, pct, stagePct: e.stagePct, message: "", files } };
     }
-    return { ...s, status: { kind: e.kind, stage: "", pct: e.pct, stagePct: -1, message: e.message || "", files } };
+    return { ...s, lane: "made", status: { kind: e.kind, stage: "", pct: e.pct, stagePct: -1, message: e.message || "", files } };
   });
+  // a slip that just finished goes last, which is what keeps Made in the order things were made
+  const done = out.find((s) => s.id === e.jobId);
+  const was = slips.find((s) => s.id === e.jobId);
+  return done && was.lane !== "made" && done.lane === "made" ? [...out.filter((s) => s !== done), done] : out;
 }
+
+export const inLane = (slips, lane) => slips.filter((s) => s.lane === lane);
+
+// madeVisible: the Made lane, newest first; the latest 5 unless showAll.
+export function madeVisible(slips, showAll) {
+  const made = inLane(slips, "made").reverse();
+  return showAll ? made : made.slice(0, 5);
+}
+
+// markReady moves the named Later slips that are ready to run (same test as
+// Make's) to the end of Ready; the rest stay in Later.
+export function markReady(slips, ids) {
+  const set = new Set(ids);
+  const moved = slips.filter((s) => set.has(s.id) && s.lane === "later" && isReady(s));
+  return [...slips.filter((s) => !moved.includes(s)), ...moved.map((s) => ({ ...s, lane: "ready" }))];
+}
+
+export const markAllReady = (slips) => markReady(slips, inLane(slips, "later").map((s) => s.id));
+
+export const moveToLater = (slips, id) => update(slips, id, (s) => (s.lane === "ready" ? { ...s, lane: "later" } : s));
+
+// makeAgain appends a copy of a made slip to Later: same setup, new id, no result.
+export function makeAgain(slips, oldId, newId) {
+  const old = slips.find((s) => s.id === oldId);
+  if (!old) return slips;
+  const { createdAt, madeAt, ...rest } = old;
+  return [...slips, { ...rest, id: newId, lane: "later", status: null, resultKind: "", filesMissing: false }];
+}
+
+// stampFor: the stamp on a made slip.
+export function stampFor(s) {
+  switch (s.status?.kind) {
+    case "done": case "already": return { label: "DONE", tone: "good" };
+    case "partial": return { label: "PARTLY", tone: "bad" };
+    case "failed": return { label: "FAILED", tone: "bad" };
+  }
+  return null;
+}
+
+// fromShelf turns appcore's saved clips (Boot) into slips. A made clip gets the
+// status a finished run would have left.
+export const fromShelf = (saved) =>
+  saved.map(({ resultMessage, files, ...c }) => ({
+    ...blank, ...c, formats: c.formats || [],
+    status: c.lane === "made" ? { kind: c.resultKind, message: resultMessage, files: files || [], stage: "", pct: 1, stagePct: -1 } : null,
+  }));
 
 // startRun shows "Next up" on the slips sent to Make.
 export function startRun(slips, ids) {
