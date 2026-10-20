@@ -14,6 +14,7 @@ import (
 	"vid2gif/internal/appcore"
 	"vid2gif/internal/runner"
 	"vid2gif/internal/settings"
+	"vid2gif/internal/shelf"
 )
 
 // version is set by release builds: -ldflags "-X main.version=0.1.0".
@@ -47,6 +48,9 @@ func (a *App) Install()                       { a.core.Install() }
 func (a *App) Add(text string) []appcore.Slip { return a.core.Add(text) }
 func (a *App) Make(jobs []runner.Job)         { a.core.Make(jobs) }
 func (a *App) Stop()                          { a.core.Stop() }
+func (a *App) Save(clips []shelf.Clip) error  { return a.core.Save(clips) }
+func (a *App) Remove(id string)               { a.core.Remove(id) }
+func (a *App) ClearMade() error               { return a.core.ClearMade() }
 
 func (a *App) Validate(start, end string, endIsLength bool, durationSec float64) appcore.Times {
 	return a.core.Validate(start, end, endIsLength, durationSec)

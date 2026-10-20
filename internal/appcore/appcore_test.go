@@ -80,6 +80,7 @@ func newTestCore(t *testing.T) (*Core, *recorder) {
 	if err := c.SaveSettings(s); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { c.store.Close() }) // Windows can't delete an open file
 	return c, rec
 }
 

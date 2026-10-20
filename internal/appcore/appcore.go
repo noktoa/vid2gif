@@ -12,6 +12,7 @@
 //	slip:status    Status
 //	run:busy       Message, Make was called while a run is going
 //	run:finished   RunFinished
+//	shelf:notice   Message, the first time saving the shelf failed
 package appcore
 
 import (
@@ -22,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,6 +37,7 @@ import (
 	"vid2gif/internal/naming"
 	"vid2gif/internal/runner"
 	"vid2gif/internal/settings"
+	"vid2gif/internal/shelf"
 )
 
 // Emit sends one event to the page. It must not block: it is called from
@@ -111,6 +112,7 @@ type BootState struct {
 	Settings   settings.Settings `json:"settings"`
 	Themes     []string          `json:"themes"`
 	BinDir     string            `json:"binDir"` // shown read-only in Settings
+	Shelf      ShelfState        `json:"shelf"`
 }
 
 // Times is Validate's answer: Message "" means valid; End 0 = to the end.
@@ -152,8 +154,12 @@ type Core struct {
 	base    context.Context // cancelled by Shutdown
 	stopAll context.CancelFunc
 	sem     chan struct{} // limits concurrent lookups
-	nextID  atomic.Int64
 	setupMu sync.Mutex
+
+	store       *shelf.Store
+	scratchDir  string // kept downloads, one folder per clip ID
+	shelfNotice string // set when the saved shelf couldn't be opened
+	noticeOnce  sync.Once
 
 	mu       sync.Mutex
 	settings settings.Settings
@@ -178,6 +184,9 @@ func New(emit Emit, log *debuglog.Log, settingsPath, binDir string, pins deps.Pi
 		sem:      make(chan struct{}, 4),
 		settings: s,
 	}
+	dir := filepath.Dir(settingsPath)
+	os.MkdirAll(dir, 0o755)
+	c.openShelf(dir)
 	c.resolve = func() (Tools, error) {
 		off := false
 		t, err := ResolveTools(binDir, pins, func(s string) { off = true; log.Printf("warning: %s", s) })
@@ -271,7 +280,7 @@ func (c *Core) cachedTools() (Tools, error) {
 func (c *Core) Boot() BootState {
 	s := c.Current()
 	c.Files.Allow(s.OutDir)
-	st := BootState{Settings: s, Themes: settings.Themes, BinDir: c.binDir}
+	st := BootState{Settings: s, Themes: settings.Themes, BinDir: c.binDir, Shelf: c.shelfState()}
 	t, err := c.resolve()
 	if err != nil {
 		c.Log.Printf("tools: %v", err)
@@ -375,19 +384,21 @@ func throttle(emit func(SetupProgress), gap time.Duration, now func() time.Time)
 }
 
 // Add returns placeholders at once; each lookup then sends slips:replace.
+// The formats and quality in force now are what the saved clips will carry.
 func (c *Core) Add(text string) []Slip {
 	out := []Slip{}
+	s := c.Current()
 	for _, link := range lookup.ParseInput(text) {
 		p := Slip{ID: c.id(), URL: link}
 		out = append(out, p)
-		go c.lookupOne(p)
+		go c.lookupOne(p, s.Formats, s.Quality)
 	}
 	return out
 }
 
-func (c *Core) id() string { return "s" + strconv.FormatInt(c.nextID.Add(1), 10) }
+func (c *Core) id() string { return shelf.NewID() }
 
-func (c *Core) lookupOne(p Slip) {
+func (c *Core) lookupOne(p Slip, formats []string, quality string) {
 	c.sem <- struct{}{}
 	defer func() { <-c.sem }()
 	r := Replace{ID: p.ID}
@@ -418,6 +429,15 @@ func (c *Core) lookupOne(p Slip) {
 	}
 	if len(r.Slips) == 1 && !r.Slips[0].Unavailable { // a playlist link's t= isn't any one video's
 		r.Slips[0].StartText = lookup.StartFromLink(p.URL)
+	}
+	for _, sl := range r.Slips {
+		if err := c.store.Put(shelf.Clip{
+			ID: sl.ID, Lane: shelf.LaneLater, URL: sl.URL, Title: sl.Title, ThumbnailURL: sl.ThumbnailURL,
+			DurationSec: sl.DurationSec, Source: source, Unavailable: sl.Unavailable, Reason: sl.Reason,
+			StartText: sl.StartText, Formats: formats, Quality: quality,
+		}); err != nil {
+			c.storeFailed(err)
+		}
 	}
 	c.send("slips:replace", r)
 }
