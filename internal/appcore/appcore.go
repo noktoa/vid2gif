@@ -157,9 +157,9 @@ type Core struct {
 	setupMu sync.Mutex
 
 	store       *shelf.Store
-	scratchDir  string // kept downloads, one folder per clip ID
-	shelfNotice string // set when the saved shelf couldn't be opened
-	noticeOnce  sync.Once
+	scratchDir  string      // kept downloads, one folder per clip ID
+	shelfNotice string      // set when the saved shelf couldn't be opened
+	noticed     atomic.Bool // the store notice was sent
 
 	mu       sync.Mutex
 	settings settings.Settings

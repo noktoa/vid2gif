@@ -287,6 +287,67 @@ func TestStoreWriteFailureSendsOneNotice(t *testing.T) {
 	}
 }
 
+func TestStoreErrorsReachThePageAsPlainText(t *testing.T) {
+	c, _ := newTestCore(t)
+	c.store.Close()
+	errs := map[string]error{
+		"Save":      c.Save([]shelf.Clip{{ID: "a", Lane: shelf.LaneReady, URL: "u"}}),
+		"ClearMade": c.ClearMade(),
+	}
+	for name, err := range errs {
+		if err == nil || err.Error() != storeMsg {
+			t.Errorf("%s error = %v, want exactly %q (no SQL or paths)", name, err, storeMsg)
+		}
+	}
+}
+
+func storeNotices(rec *recorder) int {
+	n := 0
+	for _, e := range rec.all() {
+		if e.name == "shelf:notice" {
+			n++
+		}
+	}
+	return n
+}
+
+func TestClearCacheLetsTheStoreNoticeShowAgain(t *testing.T) {
+	c, rec := newTestCore(t)
+	c.store.Close()
+	c.Save([]shelf.Clip{{ID: "a", Lane: shelf.LaneReady, URL: "u"}})
+	if err := c.ClearCache(); err != nil { // wipes and reopens: a fresh store
+		t.Fatal(err)
+	}
+	c.store.Close()
+	c.Save([]shelf.Clip{{ID: "a", Lane: shelf.LaneReady, URL: "u"}})
+	if n := storeNotices(rec); n != 2 {
+		t.Errorf("notices = %d, want one before and one after ClearCache", n)
+	}
+}
+
+func TestMakeStillRunsThePagesJobsWhenTheShelfCannotBeRead(t *testing.T) {
+	c, rec := newTestCore(t)
+	c.store.Close()
+	var got []clip.Opts
+	c.clip = func(Tools) runner.ClipRunner {
+		return fakeClip(func(_ context.Context, o clip.Opts) error { got = append(got, o); return nil })
+	}
+	c.Make([]runner.Job{{ID: "a", URL: "ua", Formats: []string{"webp"}, Quality: "low"}, {ID: "../b", URL: "bad"}, {ID: "b", URL: "ub"}})
+	waitRuns(t, rec, 1)
+	if len(got) != 2 || got[0].URL != "ua" || got[1].URL != "ub" {
+		t.Fatalf("ran %+v, want both valid jobs in order", got)
+	}
+	if want := filepath.Join(c.scratchDir, "a"); got[0].ScratchDir != want {
+		t.Errorf("ScratchDir = %q, want %q", got[0].ScratchDir, want)
+	}
+	if !slices.Equal(got[0].Formats, []string{"webp"}) || got[0].Quality != "low" {
+		t.Errorf("formats %v quality %q, want the page's own", got[0].Formats, got[0].Quality)
+	}
+	if storeNotices(rec) != 1 {
+		t.Error("the store notice was not sent once")
+	}
+}
+
 // saveReady puts clips in the ready lane, as the page does before Make.
 func saveReady(t *testing.T, c *Core, clips ...shelf.Clip) {
 	t.Helper()

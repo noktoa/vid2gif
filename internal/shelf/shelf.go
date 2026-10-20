@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -22,6 +23,10 @@ const (
 	LaneLater Lane = "later"
 	LaneMade  Lane = "made"
 )
+
+// ErrMade is returned by Put when it would pull a made clip into another lane:
+// only Finish moves clips into made, and nothing moves them out.
+var ErrMade = errors.New("shelf: clip is already made")
 
 // freshNotice is shown when the saved file could not be used.
 const freshNotice = "Couldn't open your saved shelf. Starting fresh. A copy was kept."
@@ -78,11 +83,17 @@ func openDB(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1) // one connection keeps the pragmas and writes serial
-	for _, p := range []string{"PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000"} {
+	for _, p := range []string{"PRAGMA busy_timeout=5000", "PRAGMA journal_mode=WAL"} {
 		if _, err := db.Exec(p); err != nil {
 			db.Close()
 			return nil, err
 		}
+	}
+	// A file with a good header but damaged pages opens fine and fails later.
+	var check string
+	if err := db.QueryRow("PRAGMA quick_check").Scan(&check); err != nil || check != "ok" {
+		db.Close()
+		return nil, fmt.Errorf("shelf failed its integrity check (%q): %v", check, err)
 	}
 	if err := migrate(db); err != nil {
 		db.Close()
@@ -172,7 +183,8 @@ func millis(t time.Time) int64 {
 }
 
 // Put inserts or updates a clip. A new clip, or one whose lane changed, goes to
-// the end of its lane; otherwise it keeps its place.
+// the end of its lane; otherwise it keeps its place. A made clip can't be put
+// into another lane (ErrMade).
 func (s *Store) Put(c Clip) error {
 	formats, err := json.Marshal(c.Formats)
 	if err != nil {
@@ -189,6 +201,9 @@ func (s *Store) Put(c Clip) error {
 		var oldLane string
 		var pos int
 		err := tx.QueryRow(`SELECT lane, position FROM clips WHERE id = ?`, c.ID).Scan(&oldLane, &pos)
+		if err == nil && oldLane == string(LaneMade) && c.Lane != LaneMade {
+			return ErrMade
+		}
 		if err == sql.ErrNoRows || (err == nil && oldLane != string(c.Lane)) {
 			pos, err = nextPosition(tx, c.Lane)
 		}
@@ -253,22 +268,31 @@ func (s *Store) ClearMade() error {
 	})
 }
 
-// Wipe closes the store, deletes its files, and reopens it empty.
+// Wipe closes the store, deletes its files, and reopens it empty. Whatever
+// fails, the store stays usable (in memory if the file can't be reopened) and
+// the first error is returned.
 func (s *Store) Wipe() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.db.Close()
-	for _, suf := range []string{"", "-wal", "-shm"} {
+	var first error
+	for _, suf := range []string{"-wal", "-shm", ""} { // the main file last: a failure leaves it whole
 		if err := os.Remove(s.path + suf); err != nil && !os.IsNotExist(err) {
-			return err
+			first = err
+			break
 		}
 	}
 	db, err := openDB(s.path)
 	if err != nil {
-		return err
+		if first == nil {
+			first = err
+		}
+		if db, err = openDB(":memory:"); err != nil {
+			return err
+		}
 	}
 	s.db = db
-	return nil
+	return first
 }
 
 func (s *Store) write(fn func(*sql.Tx) error) error {

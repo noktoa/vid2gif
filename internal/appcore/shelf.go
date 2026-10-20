@@ -13,6 +13,8 @@ import (
 
 const storeMsg = "Couldn't save your shelf just now. It will keep working until you close the app."
 
+var errMadeNotSavable = errors.New("That clip can't be saved there.")
+
 // ShelfClip is a saved clip as the page sees it. The outer Files shadows
 // shelf.Clip.Files in JSON, as Status does.
 type ShelfClip struct {
@@ -44,11 +46,14 @@ func (c *Core) openShelf(dir string) {
 }
 
 // storeFailed logs a store error and tells the page once; the shelf then
-// carries on in memory for the page, though later writes may still fail.
+// carries on in memory for the page, though later writes may still fail. The
+// error it returns is the plain notice: the real one (SQL, paths) is only logged.
 func (c *Core) storeFailed(err error) error {
 	c.Log.Printf("shelf: %v", err)
-	c.noticeOnce.Do(func() { c.send("shelf:notice", Message{storeMsg}) })
-	return err
+	if !c.noticed.Swap(true) {
+		c.send("shelf:notice", Message{storeMsg})
+	}
+	return errors.New(storeMsg)
 }
 
 // validID is a whitelist (shelf.NewID gives hex): an ID from the page is also a
@@ -77,9 +82,11 @@ func (c *Core) Save(clips []shelf.Clip) error {
 	if err != nil {
 		return c.storeFailed(err)
 	}
-	for _, cl := range clips { // a stale page must not pull a made clip back
+	// A stale page must not pull a made clip back. Checked up front so a batch
+	// isn't half written; Put checks again inside its transaction.
+	for _, cl := range clips {
 		if i := slices.IndexFunc(old, func(o shelf.Clip) bool { return o.ID == cl.ID }); i >= 0 && old[i].Lane == shelf.LaneMade {
-			return errors.New("That clip can't be saved there.")
+			return errMadeNotSavable
 		}
 	}
 	for _, cl := range clips {
@@ -89,6 +96,9 @@ func (c *Core) Save(clips []shelf.Clip) error {
 			cl.CreatedAt, cl.MadeAt, cl.ResultKind, cl.ResultMessage, cl.Files = o.CreatedAt, o.MadeAt, o.ResultKind, o.ResultMessage, o.Files
 		}
 		if err := c.store.Put(cl); err != nil {
+			if errors.Is(err, shelf.ErrMade) { // finished since the check above
+				return errMadeNotSavable
+			}
 			return c.storeFailed(err)
 		}
 	}
@@ -129,25 +139,32 @@ func (c *Core) ClearCache() error {
 	if err := os.RemoveAll(c.scratchDir); err != nil {
 		c.Log.Printf("shelf: remove scratch: %v", err)
 	}
+	c.noticed.Store(false) // a fresh store deserves a fresh chance to warn
 	return nil
 }
 
 // readyJobs keeps the jobs whose saved clip is in the ready lane, in the page's
 // order. The saved clip, not the page, decides the formats and quality, and
-// where its finished download is kept.
+// where its finished download is kept. If the shelf can't be read the page's
+// jobs run as sent (with its own formats and quality) rather than doing nothing.
 func (c *Core) readyJobs(jobs []runner.Job) []runner.Job {
 	saved, err := c.store.Load()
-	if err != nil {
+	failed := err != nil
+	if failed {
 		c.storeFailed(err)
-		return nil
 	}
 	var out []runner.Job
 	for _, j := range jobs {
-		i := slices.IndexFunc(saved, func(s shelf.Clip) bool { return s.ID == j.ID && s.Lane == shelf.LaneReady })
-		if i < 0 || !validID(j.ID) {
+		if !validID(j.ID) {
 			continue
 		}
-		j.Formats, j.Quality = saved[i].Formats, saved[i].Quality
+		if !failed {
+			i := slices.IndexFunc(saved, func(s shelf.Clip) bool { return s.ID == j.ID && s.Lane == shelf.LaneReady })
+			if i < 0 {
+				continue
+			}
+			j.Formats, j.Quality = saved[i].Formats, saved[i].Quality
+		}
 		j.ScratchDir = filepath.Join(c.scratchDir, j.ID)
 		out = append(out, j)
 	}

@@ -2,6 +2,8 @@ package shelf
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -254,5 +256,69 @@ func TestWriteAfterCloseReturnsErrorNotPanic(t *testing.T) {
 	}
 	if _, err := s.Load(); err == nil {
 		t.Error("Load after Close returned nil")
+	}
+}
+
+func TestPutRefusesToPullAMadeClipBackAndLeavesTheRowAlone(t *testing.T) {
+	s, _ := openTemp(t)
+	s.Put(Clip{ID: "a", Lane: LaneReady, URL: "u"})
+	s.Finish("a", "done", "all good", []File{{Format: "gif", Path: "x.gif", Size: 3}})
+	for _, lane := range []Lane{LaneReady, LaneLater} {
+		if err := s.Put(Clip{ID: "a", Lane: lane, URL: "stale"}); !errors.Is(err, ErrMade) {
+			t.Errorf("Put into %s = %v, want ErrMade", lane, err)
+		}
+	}
+	got, _ := s.Load()
+	if len(got) != 1 || got[0].Lane != LaneMade || got[0].URL != "u" || got[0].ResultKind != "done" || len(got[0].Files) != 1 {
+		t.Errorf("made row changed: %+v", got)
+	}
+}
+
+func TestWipeThatCannotRemoveFilesLeavesAUsableStore(t *testing.T) {
+	s, _ := openTemp(t)
+	s.Put(Clip{ID: "1", Lane: LaneReady})
+	// A non-empty folder where the -wal file belongs: Remove fails, and so does reopening there.
+	s.path = filepath.Join(t.TempDir(), "other.db")
+	if err := os.MkdirAll(filepath.Join(s.path+"-wal", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Wipe(); err == nil {
+		t.Fatal("Wipe returned nil though a file could not be removed")
+	}
+	if got, err := s.Load(); err != nil || len(got) != 0 {
+		t.Fatalf("Load after failed Wipe: %v, %v", got, err)
+	}
+	if err := s.Put(Clip{ID: "2", Lane: LaneReady}); err != nil {
+		t.Errorf("Put after failed Wipe: %v", err)
+	}
+}
+
+func TestDamagedPagesAreMovedAsideAndReplaced(t *testing.T) {
+	s, path := openTemp(t)
+	for i := range 60 {
+		s.Put(Clip{ID: fmt.Sprint("c", i), Lane: LaneReady, Title: strings.Repeat("x", 1500)})
+	}
+	s.Close()
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) < 4*4096 {
+		t.Fatalf("db file: %d bytes, %v", len(b), err)
+	}
+	for i := 4096; i < 3*4096; i++ { // keep page 1 (the header), wreck the pages after it
+		b[i] = 0xFF
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s2, notice, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if notice != freshNotice {
+		t.Errorf("notice = %q", notice)
+	}
+	assertMovedAside(t, path)
+	if got, err := s2.Load(); err != nil || len(got) != 0 {
+		t.Fatalf("not empty: %v, %v", got, err)
 	}
 }
