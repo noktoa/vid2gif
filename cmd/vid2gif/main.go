@@ -20,12 +20,16 @@ import (
 	"vid2gif/internal/progress"
 )
 
+// version is set by release builds: -ldflags "-X main.version=0.2.3".
+var version = "dev"
+
 const usage = `vid2gif - turn a segment of an online video into a GIF, WebP, MP4 or MOV
 
 Usage:
   vid2gif clip <url> --start T [flags]    the URL must come first
   vid2gif deps install                    download the pinned yt-dlp, ffmpeg and deno into bin/ or $VID2GIF_BIN (run once)
   vid2gif help                            show this text
+  vid2gif --version                       show the version
 
 Example:
   vid2gif deps install
@@ -54,9 +58,30 @@ func newClipFlags(a *clipArgs, start, end, formats *string) *flag.FlagSet {
 	fs.BoolVar(&a.NoProgress, "no-progress", false, "no progress bar (it is shown only when the output is a terminal)")
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), usage, "\nFlags for clip:\n")
-		fs.PrintDefaults()
+		printFlags(fs)
 	}
 	return fs
+}
+
+// printFlags is fs.PrintDefaults with "--" prefixes, to match the usage
+// text and error messages (PrintDefaults always prints a single hyphen).
+func printFlags(fs *flag.FlagSet) {
+	fs.VisitAll(func(f *flag.Flag) {
+		typ, usage := flag.UnquoteUsage(f)
+		line := "  --" + f.Name
+		if typ != "" {
+			line += " " + typ
+		}
+		line += "\n    \t" + usage
+		if f.DefValue != "" && f.DefValue != "false" {
+			if typ == "string" {
+				line += fmt.Sprintf(" (default %q)", f.DefValue)
+			} else {
+				line += fmt.Sprintf(" (default %s)", f.DefValue)
+			}
+		}
+		fmt.Fprintln(fs.Output(), line)
+	})
 }
 
 // clipArgs is a parsed `clip` command: the pipeline's options plus the
@@ -255,6 +280,9 @@ func realMain(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprint(stderr, usage)
 		return 2
+	case "version", "--version":
+		fmt.Fprintln(stdout, "vid2gif", version)
+		return 0
 	case "help", "-h", "--help":
 		fs := newClipFlags(&clipArgs{}, new(string), new(string), new(string))
 		fs.SetOutput(stdout)
