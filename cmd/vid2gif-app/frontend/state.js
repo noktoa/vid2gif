@@ -40,6 +40,19 @@ export function replaceSlip(slips, id, newSlips) {
   return [...slips.slice(0, i), ...fresh, ...slips.slice(i + 1)];
 }
 
+// canRetry: a lookup that failed and still has its link, so it can be looked
+// up again (a private entry inside a playlist has no link of its own).
+export const canRetry = (s) => !!(s.failed && s.url);
+
+// retrySlip puts a fresh placeholder (from Add) where the failed slip was, so
+// the usual slips:replace fills it in. Anything that can't be retried returns
+// slips itself.
+export function retrySlip(slips, id, placeholder) {
+  const i = slips.findIndex((s) => s.id === id);
+  if (i < 0 || !canRetry(slips[i])) return slips;
+  return [...slips.slice(0, i), { ...blank, ...placeholder, pending: true }, ...slips.slice(i + 1)];
+}
+
 // canRun: a real video that isn't in the current run. A finished slip can be
 // made again (another quality or format makes a new file; the same one is
 // answered "already" before any download).

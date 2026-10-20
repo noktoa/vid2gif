@@ -161,7 +161,12 @@ function paint(li, s, eye, header) {
     row2.replaceChildren(...buildRow2(s, mode));
   }
   if (mode === "gone") {
-    row2.querySelector(".lead .note").textContent = s.message || GONE;
+    const msg = s.message || GONE;
+    row2.querySelector(".lead .note.alert").textContent = msg;
+    // the privacy hint only makes sense for private or removed videos; a link
+    // with nothing to look up again (a private entry in a playlist) has no button
+    row2.querySelector(".lead .note.hint").hidden = !(S.canRetry(s) && msg === GONE);
+    row2.querySelector("button.retry").hidden = !S.canRetry(s);
   }
   if (mode === "slip") paintTimes(li, s, title);
 
@@ -175,8 +180,12 @@ function buildRow2(s, mode) {
   if (mode === "pending") return [el("div", { class: "state lead" }, el("span", { class: "stamp wait", text: "Looking up" }))];
   if (mode === "gone") {
     return [
-      el("div", { class: "state lead" }, el("p", { class: "note alert" })),
-      el("div", { class: "state" }, el("span", { class: "stamp bad", text: "Not found" }), removeBtn(s.id)),
+      el("div", { class: "state lead" },
+        el("p", { class: "note alert" }),
+        el("p", { class: "note hint", text: "If you've changed its privacy settings, press Try again." })),
+      el("div", { class: "state" },
+        el("span", { class: "stamp bad", text: "Not found" }),
+        el("div", { class: "actions" }, retryBtn(s.id), removeBtn(s.id))),
     ];
   }
   const input = (which, placeholder) => el("input", {
@@ -194,6 +203,7 @@ function buildRow2(s, mode) {
 }
 
 const removeBtn = (id) => el("button", { class: "btn quiet", type: "button", text: "Remove", onclick: () => remove(id) });
+const retryBtn = (id) => el("button", { class: "btn retry", type: "button", text: "Try again", onclick: () => retry(id) });
 
 function paintTimes(li, s, title) {
   const [start, end] = [li.querySelector("input.start"), li.querySelector("input.end")];
@@ -380,6 +390,34 @@ function remove(id) {
   previewTab.delete(id);
   render();
   linkField.focus();
+}
+
+// retry looks a failed link up again, in the slip's place (e.g. after the video
+// was made public). It runs through the same Add and slips:replace as a paste.
+const retrying = new Set();
+async function retry(id) {
+  const s = slips.find((x) => x.id === id);
+  if (!s || !S.canRetry(s) || retrying.has(id)) return;
+  retrying.add(id);
+  try {
+    const [p] = (await App.Add(s.url)) || [];
+    if (!p) {
+      notice("That doesn't look like a video link any more. Remove it and paste it again.");
+      return;
+    }
+    slips = S.retrySlip(slips, id, p);
+    if (!slips.some((x) => x.id === p.id)) { // removed while we waited
+      if (!buffered.delete(p.id)) dropped.add(p.id);
+    } else if (buffered.has(p.id)) { // an instant failure beat Add's return
+      applyReplace(buffered.get(p.id));
+      buffered.delete(p.id);
+    }
+    notice("");
+    render();
+    linkField.focus();
+  } finally {
+    retrying.delete(id);
+  }
 }
 
 function applyReplace(r) {

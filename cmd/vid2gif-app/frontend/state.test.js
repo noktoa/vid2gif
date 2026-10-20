@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   addPlaceholders, replaceSlip, readyJobs, applyStatus, eyeId, makeLabel,
   formatDuration, stageLabel, barValue, needsCheck, makeCount, startRun, endRun, sourceTitle,
-  setupProgress, formatSize, clipLength,
+  setupProgress, formatSize, clipLength, canRetry, retrySlip,
 } from "./state.js";
 
 const slip = (id, more = {}) => ({
@@ -43,6 +43,39 @@ test("replaceSlip drops videos already on the shelf, keeps unavailable entries w
   const s = addPlaceholders([ready("a")], [{ id: "p", url: "https://y/list" }]);
   const out = replaceSlip(s, "p", [slip("dup", { url: s[0].url }), slip("n1", { url: "", unavailable: true }), slip("n2", { url: "", unavailable: true })]);
   assert.deepEqual(out.map((v) => v.id), ["a", "n1", "n2"]);
+});
+
+test("canRetry is true only for a failed lookup that has a link", () => {
+  assert.equal(canRetry(slip("f", { failed: true, message: "Couldn't get this video. It may be private or removed." })), true);
+  assert.equal(canRetry(slip("e", { failed: true, url: "" })), false); // nothing to look up again
+  assert.equal(canRetry(slip("u", { url: "", unavailable: true })), false); // a private entry inside a playlist
+  assert.equal(canRetry(ready("r")), false);
+  assert.equal(canRetry({ ...slip("p"), pending: true }), false);
+});
+
+test("retrySlip puts a fresh placeholder where the failed slip was", () => {
+  const s = [ready("a"), slip("bad", { failed: true, message: "Couldn't get this video. It may be private or removed." }), ready("z")];
+  const out = retrySlip(s, "bad", { id: "p9", url: s[1].url });
+  assert.deepEqual(out.map((v) => v.id), ["a", "p9", "z"]);
+  assert.equal(out[1].pending, true);
+  assert.ok(!out[1].failed && !out[1].message); // nothing of the old failure is carried over
+  assert.equal(out[1].url, s[1].url);
+  assert.equal(out[0], s[0]); // the others are untouched
+});
+
+test("retrySlip leaves the list alone for an unknown id or a slip that cannot be retried", () => {
+  const s = [ready("a"), slip("n", { url: "", unavailable: true })];
+  assert.equal(retrySlip(s, "nope", { id: "p", url: "https://y/1" }), s);
+  assert.equal(retrySlip(s, "a", { id: "p", url: "https://y/1" }), s); // a good video is not retried
+  assert.equal(retrySlip(s, "n", { id: "p", url: "https://y/1" }), s);
+});
+
+test("retrySlip result takes the usual replace: a successful lookup fills the placeholder", () => {
+  const s = [slip("bad", { failed: true })];
+  const pending = retrySlip(s, "bad", { id: "p9", url: s[0].url });
+  const done = replaceSlip(pending, "p9", [slip("good", { url: s[0].url })]);
+  assert.deepEqual(done.map((v) => v.id), ["good"]);
+  assert.equal(done[0].failed, false);
 });
 
 test("readyJobs skips slips without a Start, unavailable, failed lookups, placeholders and bad times", () => {

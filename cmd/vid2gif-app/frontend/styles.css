@@ -174,7 +174,8 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 
 .state { margin-left: auto; display: grid; gap: 4px; justify-items: end; text-align: right; min-width: 0; }
 .state.lead { margin-left: 0; justify-items: start; text-align: left; flex: 1 1 14ch; }
-.note { margin: 0; font-size: 13px; color: var(--ink-2); max-width: 32ch; }
+.note { margin: 0; font-size: 13px; color: var(--ink-2); max-width: 32ch; text-wrap: pretty; }
+.inline-preview .note { max-width: none; } /* the preview panel is wide: do not wrap its sentence at the slip-note width */
 .note.alert { color: var(--alert); font-weight: 700; }
 .files { margin: 0; font-weight: 700; font-size: 13px; color: var(--ink-2); letter-spacing: .02em; }
 
@@ -232,6 +233,8 @@ button.stamp:hover { background: var(--paper); }
 .facts dt { color: var(--ink-2); }
 .facts dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.state .actions { justify-content: flex-end; align-items: center; }
+.note.hint[hidden], .btn.retry[hidden] { display: none; }
 
 /* ---------- settings menu (a popover under the gear) ---------- */
 .settings-menu {
