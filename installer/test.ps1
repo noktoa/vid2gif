@@ -28,7 +28,7 @@ function Msi($argList, $log) {
 }
 function Build($v, $appExe) {
     $out = Join-Path $dist "vid2gif-$v.msi"
-    wix build "$PSScriptRoot\vid2gif.wxs" -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=$v -d AppExe=$appExe -o $out
+    wix build "$PSScriptRoot\vid2gif.wxs" -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=$v -d AppExe=$appExe -d AppIcon="$root\cmd\vid2gif-app\icon.ico" -o $out
     if ($LASTEXITCODE) { throw "FAIL: wix build $v" }
     $out
 }

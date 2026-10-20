@@ -1,6 +1,6 @@
 <!--
   vid2gif MSI. Build (from the repo root):
-  wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=0.1.0 -d AppExe=dist\vid2gif-app.exe -o dist\vid2gif-0.1.0.msi
+  wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=0.1.0 -d AppExe=dist\vid2gif-app.exe -d AppIcon=cmd\vid2gif-app\icon.ico -o dist\vid2gif-0.1.0.msi
 
   Just me (default, no admin) or all users, chosen in WixUI_Advanced. The
   helper tools are not in the package: InstallTools runs the app's
@@ -16,6 +16,10 @@
            UpgradeCode="E5C2BD8E-12D9-4CF9-B8B7-417D297F1330" Scope="perUserOrMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of vid2gif is already installed." />
     <MediaTemplate EmbedCab="yes" />
+
+    <!-- Installed apps / Programs and Features, and the Start Menu shortcut -->
+    <Icon Id="AppIcon.ico" SourceFile="$(AppIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
 
     <ui:WixUI Id="WixUI_Advanced" />
     <WixVariable Id="WixUILicenseRtf" Value="$(sys.SOURCEFILEDIR)license.rtf" />
@@ -69,7 +73,7 @@
         <RemoveFolder Id="RemoveAppFolder" On="uninstall" />
       </Component>
       <Component Id="Shortcut" Directory="ProgramMenuFolder">
-        <Shortcut Name="vid2gif" Target="[#AppExe]" WorkingDirectory="APPLICATIONFOLDER" />
+        <Shortcut Name="vid2gif" Target="[#AppExe]" WorkingDirectory="APPLICATIONFOLDER" Icon="AppIcon.ico" />
         <RegistryValue Root="HKMU" Key="Software\vid2gif" Name="InstallFolder" Type="string" Value="[APPLICATIONFOLDER]" KeyPath="yes" />
         <!-- bin may be a folder the user already had: remove only the names
              deps.Install writes (tool, .new stage, .download archive), then

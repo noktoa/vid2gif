@@ -45,7 +45,7 @@ To build the MSI you need the [WiX Toolset](https://wixtoolset.org) 6 and its UI
 ```powershell
 dotnet tool install --global wix --version 6.0.2
 wix extension add --global WixToolset.UI.wixext/6.0.2 WixToolset.Util.wixext/6.0.2
-wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=0.1.0 -d AppExe=dist\vid2gif-app.exe -o dist\vid2gif-0.1.0.msi
+wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=0.1.0 -d AppExe=dist\vid2gif-app.exe -d AppIcon=cmd\vid2gif-app\icon.ico -o dist\vid2gif-0.1.0.msi
 ```
 
 `installer\test.ps1` builds two versions, then installs (just for you, into a temp folder), upgrades and uninstalls, and checks what is left. It refuses to run if vid2gif is already installed, and it moves your `%LOCALAPPDATA%\vid2gif` aside while it runs and puts it back afterwards. It downloads the helper tools once.
@@ -55,6 +55,8 @@ To build it from source you need Go, and nothing else:
 ```powershell
 go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o dist/vid2gif-app.exe ./cmd/vid2gif-app
 ```
+
+The exe's icon comes from `cmd/vid2gif-app/rsrc_windows_amd64.syso`, which is committed; after changing `cmd/vid2gif-app/icon.ico`, run `go generate ./cmd/vid2gif-app` to rebuild it.
 
 The page inside the app is plain JavaScript in `cmd/vid2gif-app/frontend/`. Its tests need Node.js 22 or newer:
 

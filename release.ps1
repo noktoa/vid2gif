@@ -30,7 +30,7 @@ if ($LASTEXITCODE) { throw 'go build (app) failed' }
 # MSI versions are a.b.c only, so a pre-release tag (v0.1.0-rc1) ships the exes without an MSI
 if ($ver -match '^\d+\.\d+\.\d+$') {
     Write-Host "Building vid2gif-$ver.msi..."
-    wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=$ver -d AppExe=dist\vid2gif-app.exe -o "dist\vid2gif-$ver.msi"
+    wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=$ver -d AppExe=dist\vid2gif-app.exe -d AppIcon=cmd\vid2gif-app\icon.ico -o "dist\vid2gif-$ver.msi"
     if ($LASTEXITCODE) { throw 'wix build failed (is WiX installed? see the top of this script)' }
     Remove-Item "$dist\*.wixpdb"
 } else {

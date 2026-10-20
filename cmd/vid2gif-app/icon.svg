@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="vid2gif">
+  <title>vid2gif</title>
+  <!-- Tile: the Make-button yellow with the app's 2px-style ink outline, scaled to 256. -->
+  <rect x="12" y="12" width="232" height="232" rx="56" fill="#FFD60A" stroke="#1E1B24" stroke-width="12"/>
+  <!-- The rental slip: card stock with a perforated stub on the left. -->
+  <rect x="44" y="76" width="168" height="108" rx="16" fill="#F8FAFC" stroke="#1E1B24" stroke-width="10"/>
+  <line x1="92" y1="86" x2="92" y2="174" stroke="#1E1B24" stroke-width="7" stroke-linecap="round" stroke-dasharray="1 14"/>
+  <!-- Notches cut into the slip at the perforation, in the tile colour. -->
+  <circle cx="92" cy="76" r="11" fill="#FFD60A"/>
+  <circle cx="92" cy="184" r="11" fill="#FFD60A"/>
+  <!-- Play: the clip. -->
+  <path d="M138 106 L138 154 L178 130 Z" fill="#1E1B24" stroke="#1E1B24" stroke-width="10" stroke-linejoin="round"/>
+</svg>

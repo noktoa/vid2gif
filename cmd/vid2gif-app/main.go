@@ -24,6 +24,11 @@ import (
 	"vid2gif/internal/settings"
 )
 
+// The exe's icon: rsrc_windows_amd64.syso holds icon.ico as icon group 3
+// (Wails' window icon, winc.AppIconID) and 32512 (IDI_APPLICATION, its window
+// class icon); Explorer shows the first group, which is 3.
+//go:generate go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --out rsrc --arch amd64
+
 //go:embed all:frontend
 var assets embed.FS
 
