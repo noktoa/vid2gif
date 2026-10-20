@@ -237,13 +237,16 @@ func (p Pipeline) run(ctx context.Context, o Opts) error {
 	dlDir, fingerprint, clip := tmp, "", ""
 	if o.ScratchDir != "" {
 		dlDir = o.ScratchDir
-		fingerprint = fmt.Sprintf("%v|%v|%v|%v|%v", o.URL, o.Start, o.End, o.FullSource, wantAudio)
+		// Quality is in: it picks how wide a source gif/webp download is.
+		fingerprint = fmt.Sprintf("%v|%v|%v|%v|%v|%v", o.URL, o.Start, o.End, o.FullSource, wantAudio, o.Quality)
 		marker := filepath.Join(dlDir, downloadMarker)
 		if b, err := os.ReadFile(marker); err == nil && string(b) == fingerprint {
 			clip, _ = pickClipFile(dlDir) // "" when the file is gone: download again
 		}
 		if clip == "" {
-			os.RemoveAll(dlDir)
+			if err := os.RemoveAll(dlDir); err != nil { // a surviving stale clip.* could be reused
+				return fail("", err)
+			}
 			if err := os.MkdirAll(dlDir, 0o755); err != nil {
 				return fail("", err)
 			}

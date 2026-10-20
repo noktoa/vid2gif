@@ -141,7 +141,7 @@ func runJob(ctx context.Context, cr ClipRunner, j Job, s settings.Settings, form
 		Quality:     s.Quality,
 		FullSource:  s.FullSource,
 		ScratchDir:  j.ScratchDir,
-		OnEvent:    onEvent,
+		OnEvent:     onEvent,
 		DurationSec: length,
 	})
 	// clip.Run has returned, so onEvent is no longer called: flush the last.

@@ -1016,7 +1016,7 @@ func TestScratchKeptAndReusedByNextRun(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(scratch, "clip.mkv")); err != nil {
 		t.Errorf("scratch clip not kept: %v", err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(scratch, "download.ok")); string(b) != "https://example.com/v|83|88|false|false" {
+	if b, _ := os.ReadFile(filepath.Join(scratch, "download.ok")); string(b) != "https://example.com/v|83|88|false|false|medium" {
 		t.Errorf("marker = %q", b)
 	}
 	if got := dirNames(t, dir); len(got) != 0 {
@@ -1063,6 +1063,7 @@ func TestScratchWithDifferentFingerprintIsRedownloaded(t *testing.T) {
 		"start":      func(o *Opts) { o.Start = 80 },
 		"fullSource": func(o *Opts) { o.FullSource = true },
 		"audio":      func(o *Opts) { o.Formats = []string{"gif", "mp4"} },
+		"quality":    func(o *Opts) { o.Quality = "high" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir, scratch := t.TempDir(), filepath.Join(t.TempDir(), "scratch")
