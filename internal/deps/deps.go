@@ -27,18 +27,6 @@ type Tool struct {
 
 type Pins map[string]Tool
 
-// Only is the pins named in the comma-separated list; empty entries (a
-// trailing comma) are ignored and unknown names match nothing.
-func (p Pins) Only(list string) Pins {
-	out := Pins{}
-	for name := range strings.SplitSeq(list, ",") {
-		if t, ok := p[name]; ok {
-			out[name] = t
-		}
-	}
-	return out
-}
-
 func Load(path string) (Pins, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

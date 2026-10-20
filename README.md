@@ -23,7 +23,7 @@ That writes `gifs/<video title>_2-5.gif`. Keep `deps.json` in the same folder as
 If you'd rather not use a terminal, there is a Windows app: paste a link, pick the moment you want, and it makes the GIF (or WebP, MP4 or MOV) for you. It uses the same engine as the command line, so the files come out the same.
 
 - **Download:** the [releases page](https://github.com/noktoa/vid2gif/releases) has an installer, `vid2gif-<version>.msi`, and the plain `vid2gif-app.exe`, a single file you can run from any folder. On current Windows 10 and 11 neither needs anything installed first (the window uses WebView2, which comes with Windows).
-- **Helper tools:** yt-dlp, ffmpeg and deno (about 250 MB) are downloaded during install. If that step couldn't run (for example you were offline), or you use the plain .exe, the app downloads them on first launch and shows a progress screen while it does. It only happens once. The app looks in its `bin` folder first, then on your PATH, so tools you already have work too: a copy in `bin` has to be the pinned version, but one found only on PATH is used whatever its version. If it isn't the pinned version, the troubleshooting log says so, and a version vid2gif wasn't tested with may fail.
+- **Helper tools:** yt-dlp, ffmpeg and deno (about 270 MB) come inside the MSI, so installing needs no network. With the plain .exe, the app downloads them on first launch and shows a progress screen while it does. It only happens once. The app looks in its `bin` folder first, then on your PATH, so tools you already have work too: a copy in `bin` has to be the pinned version, but one found only on PATH is used whatever its version. If it isn't the pinned version, the troubleshooting log says so, and a version vid2gif wasn't tested with may fail.
 - **Where things live:** your settings, logs and the app's web view data are in `%LOCALAPPDATA%\vid2gif`. The helper tools are in a `bin` folder next to the app. (Set `VID2GIF_BIN` to put them somewhere else, as with the command line.)
 - **If something goes wrong:** turn on Settings → Troubleshooting. The app then writes one log file per run to `%LOCALAPPDATA%\vid2gif\logs` and keeps the newest 5. The log includes the video links you used, so look through it before you send it with a bug report.
 - **Windows only.** The Linux build is the command line.
@@ -35,21 +35,22 @@ If you'd rather not use a terminal, there is a Windows app: paste a link, pick t
 3. Keep the suggested folder or pick your own. Just for you installs to `%LOCALAPPDATA%\Programs\vid2gif`, for all users to `C:\Program Files\vid2gif`.
 4. To use your own yt-dlp, ffmpeg or deno instead, open **Customize** and untick it. Each tool's description says it may not work if its version differs from the one vid2gif was tested with.
 
-The installer adds a Start Menu shortcut and an entry in Settings → Apps → Installed apps, then downloads the ticked helper tools into `<install folder>\bin`. An unticked tool is found on your PATH instead. A silent upgrade (`msiexec /i ... /qn`) ticks everything again; add `ADDLOCAL=Main,ToolYtDlp,ToolFfmpeg,ToolDeno` with only the tools you want. An all-users install has one shared copy of the tools that only administrators can change. If a standard user is ever told the helper files couldn't be set up, an administrator can run **Repair** on vid2gif in Installed apps. Installing a newer MSI upgrades in place and keeps the tools and your settings.
+The installer adds a Start Menu shortcut and an entry in Settings → Apps → Installed apps, then puts the ticked helper tools in `<install folder>\bin`. An unticked tool is found on your PATH instead. A silent install or upgrade (`msiexec /i ... /qn`) ticks everything; add `ADDLOCAL=Main,ToolYtDlp,ToolFfmpeg,ToolDeno` with only the tools you want. An all-users install has one shared copy of the tools that only administrators can change. If a standard user is ever told the helper files couldn't be set up (a tool that is in neither `bin` nor PATH), an administrator can run **Repair** on vid2gif in Installed apps. Installing a newer MSI upgrades in place, replaces the tools with the newer MSI's, and keeps your settings.
 
-**Uninstalling** (from Installed apps) removes the program, the shortcut, the helper tools vid2gif put in `bin` (and any half-finished download of them), and `%LOCALAPPDATA%\vid2gif` (settings, logs, web view data). Only the app's own files are removed: `bin` and the install folder go only when nothing else is left in them, so other files in a folder you already had stay. In a `bin` folder only three files are ever touched: `yt-dlp.exe`, `ffmpeg.exe` and `deno.exe` (installing replaces them if they are not the pinned versions, and uninstalling removes them). It never removes the clips you made or your output folder. If a clip was interrupted by a crash, a `.vid2gif-tmp-*` folder may be left in the output folder; it is safe to delete.
+**Uninstalling** (from Installed apps) removes the program, the shortcut, the helper tools in `bin` (including one the app downloaded itself, and any half-finished download), and `%LOCALAPPDATA%\vid2gif` (settings, logs, web view data). Only the app's own files are removed: `bin` and the install folder go only when nothing else is left in them, so other files in a folder you already had stay. In a `bin` folder only three files are ever touched: `yt-dlp.exe`, `ffmpeg.exe` and `deno.exe` (installing replaces them, and uninstalling removes them). It never removes the clips you made or your output folder. If a clip was interrupted by a crash, a `.vid2gif-tmp-*` folder may be left in the output folder; it is safe to delete.
 
 For an all-users install, uninstalling clears `%LOCALAPPDATA%\vid2gif` only for the user who runs the uninstall. Other people who used the app on that PC can delete their own `%LOCALAPPDATA%\vid2gif` folder.
 
-To build the MSI you need the [WiX Toolset](https://wixtoolset.org) 6 and its UI and Util extensions:
+To build the MSI you need the [WiX Toolset](https://wixtoolset.org) 6 and its UI and Util extensions, and the pinned tools in `bin\` (the Go command downloads them, about 270 MB, and skips any already there):
 
 ```powershell
 dotnet tool install --global wix --version 6.0.2
 wix extension add --global WixToolset.UI.wixext/6.0.2 WixToolset.Util.wixext/6.0.2
-wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=0.1.0 -d AppExe=dist\vid2gif-app.exe -d AppIcon=cmd\vid2gif-app\icon.ico -o dist\vid2gif-0.1.0.msi
+go run ./build/installtools deps.json bin
+wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=0.1.0 -d AppExe=dist\vid2gif-app.exe -d AppIcon=cmd\vid2gif-app\icon.ico -d ToolsDir=bin -o dist\vid2gif-0.1.0.msi
 ```
 
-`installer\test.ps1` builds two versions, then installs (just for you, into a temp folder), upgrades and uninstalls, and checks what is left. It refuses to run if vid2gif is already installed, and it moves your `%LOCALAPPDATA%\vid2gif` aside while it runs and puts it back afterwards. It downloads the helper tools once.
+`installer\test.ps1` builds two versions, then installs (just for you, into a temp folder), upgrades and uninstalls, and checks what is left. It refuses to run if vid2gif is already installed, and it moves your `%LOCALAPPDATA%\vid2gif` aside while it runs and puts it back afterwards. It fetches the helper tools into `bin\` the first time.
 
 To build it from source you need Go, and nothing else:
 
@@ -64,8 +65,6 @@ The page inside the app is plain JavaScript in `cmd/vid2gif-app/frontend/`. Its 
 ```
 node --test "cmd/vid2gif-app/frontend/*.test.js"
 ```
-
-`vid2gif-app.exe --install-tools` downloads the helper tools without opening a window (the MSI runs it). `--install-tools=yt-dlp,deno` downloads only those (the MSI passes the ticked ones). It writes a log to `%TEMP%\vid2gif-install.log`. For an all-users install the MSI runs it as the system, so that log is in the system's temp folder (`C:\Windows\SystemTemp` on current Windows 11, `C:\Windows\Temp` on older versions), not your own `%TEMP%`.
 
 ## Examples
 
@@ -160,7 +159,7 @@ YouTube extraction needs a JavaScript runtime, so every `clip` run requires the 
 
 ffmpeg is bumped the same way, using the dated builds from [yt-dlp/FFmpeg-Builds](https://github.com/yt-dlp/FFmpeg-Builds/releases). Older dated builds are removed from that page over time, so if `deps install` reports a 404 for ffmpeg, pick a newer build.
 
-The ffmpeg builds are GPL-licensed. vid2gif downloads them, and deno (MIT), when you run `deps install`; neither is included in this repository.
+vid2gif is under the GNU GPL version 3 (see `LICENSE`). The ffmpeg builds are GPL-licensed too, deno is MIT and yt-dlp is the Unlicense. `deps install` downloads them and the MSI includes them; none is in this repository. `THIRD-PARTY-NOTICES.txt` says where their source is, and the MSI installs it next to the app.
 
 ## Running the tests
 
@@ -246,7 +245,7 @@ Each package in one line:
 - `internal/deps`: reads `deps.json`, checks tool versions, downloads and verifies the tools.
 - `internal/clip`: the download and encode pipeline for one clip.
 - `internal/encode`: quality presets and ffmpeg arguments.
-- `cmd/vid2gif-app`: the Windows desktop app. A thin Wails window over `internal/appcore`; `--install-tools` installs the tools headlessly.
+- `cmd/vid2gif-app`: the Windows desktop app. A thin Wails window over `internal/appcore`.
 - `internal/appcore`: the app's logic behind the methods the page calls (settings, lookups, runs, tool setup). It doesn't import Wails, so it is tested on Linux too.
 - `internal/settings`: loads and saves the app's preferences.
 - `internal/debuglog`: the opt-in diagnostic log, one file per run, with URLs scrubbed of anything that identifies you or signs a media request.

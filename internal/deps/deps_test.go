@@ -153,14 +153,3 @@ func TestResolveOwn(t *testing.T) {
 		t.Errorf("err = %v, want not-exist", err)
 	}
 }
-
-func TestPinsOnly(t *testing.T) {
-	p := Pins{"yt-dlp": {Version: "1"}, "ffmpeg": {Version: "2"}, "deno": {Version: "3"}}
-	got := p.Only("yt-dlp,deno,nope,")
-	if len(got) != 2 || got["yt-dlp"].Version != "1" || got["deno"].Version != "3" {
-		t.Errorf("Only = %v", got)
-	}
-	if len(p.Only("")) != 0 {
-		t.Error("empty list must select nothing")
-	}
-}

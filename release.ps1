@@ -1,4 +1,4 @@
-# Interactive release: build vid2gif.exe, vid2gif-app.exe and the MSI, write checksums.txt, publish a GitHub release via gh.
+# Interactive release: build vid2gif.exe, vid2gif-app.exe and the MSI (with the pinned yt-dlp, ffmpeg and deno inside, about 250 MB of downloads the first time), write checksums.txt, publish a GitHub release via gh.
 # The MSI needs WiX: dotnet tool install --global wix --version 6.0.2
 #   wix extension add --global WixToolset.UI.wixext/6.0.2 WixToolset.Util.wixext/6.0.2
 $ErrorActionPreference = 'Stop'
@@ -39,8 +39,12 @@ if ($LASTEXITCODE) { throw 'go build (app) failed' }
 
 # MSI versions are a.b.c only, so a pre-release tag (v0.1.0-rc1) ships the exes without an MSI
 if ($ver -match '^\d+\.\d+\.\d+$') {
+    # the MSI carries yt-dlp, ffmpeg and deno: fetch the pinned ones into bin\ (a no-op for any already there)
+    Write-Host 'Fetching the helper tools...'
+    go run ./build/installtools deps.json bin
+    if ($LASTEXITCODE) { throw 'fetching the helper tools failed' }
     Write-Host "Building vid2gif-$ver.msi..."
-    wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=$ver -d AppExe=dist\vid2gif-app.exe -d AppIcon=cmd\vid2gif-app\icon.ico -o "dist\vid2gif-$ver.msi"
+    wix build installer\vid2gif.wxs -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -arch x64 -d Version=$ver -d AppExe=dist\vid2gif-app.exe -d AppIcon=cmd\vid2gif-app\icon.ico -d ToolsDir=bin -o "dist\vid2gif-$ver.msi"
     if ($LASTEXITCODE) { throw 'wix build failed (is WiX installed? see the top of this script)' }
     Remove-Item "$dist\*.wixpdb"
 } else {

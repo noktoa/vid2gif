@@ -1,0 +1,22 @@
+vid2gif is licensed under the GNU General Public License, version 3 (see LICENSE).
+
+The installer also puts three separate programs in the "bin" folder next to
+vid2gif-app.exe. vid2gif runs them as its own processes; they are not part of
+vid2gif and keep their own licenses. The exact versions are listed in deps.json
+in the vid2gif source.
+
+yt-dlp   Unlicense (public domain)
+         https://github.com/yt-dlp/yt-dlp
+
+ffmpeg   GNU General Public License. This is the "gpl" build from the yt-dlp
+         FFmpeg-Builds project, which also lists the other libraries built in
+         and their licenses.
+         Build recipe and binaries: https://github.com/yt-dlp/FFmpeg-Builds
+         Source code: https://github.com/FFmpeg/FFmpeg at the commit in the
+         version that "ffmpeg.exe -version" prints (N-<count>-g<commit>).
+         The license text is the GPL version 3 in the LICENSE file; you can
+         also ask for the source by opening an issue at
+         https://github.com/noktoa/vid2gif.
+
+deno     MIT License, Copyright the Deno authors
+         https://github.com/denoland/deno
