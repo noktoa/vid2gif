@@ -63,14 +63,51 @@
     return parts.reduce((acc, p) => acc * 60 + Number(p), 0);
   };
 
+  // The saved shelf (appcore.ShelfClip): 2 ready, 2 later (one with no Start)
+  // and 6 made (one failed, one whose files are gone). Save/Remove/Clear* change it.
+  const clip = (title, o = {}) => ({
+    id: id(), lane: "later", url: "https://www.youtube.com/watch?v=" + id(), title, thumbnailUrl: "", durationSec: 300,
+    source: "Pasted links", unavailable: false, reason: "", startText: "", endText: "", endKind: "stop",
+    start: null, end: 0, timeMsg: "", checked: "|", formats: ["gif"], quality: "medium",
+    resultKind: "", resultMessage: "", files: [], filesMissing: false, createdAt: new Date().toISOString(), madeAt: "", ...o,
+  });
+  const times = (a, b) => ({ startText: a, endText: b, start: parse(a), end: parse(b), checked: a + "|" + b });
+  const made = (title, o = {}) => clip(title, {
+    lane: "made", ...times("0:10", "0:18"), resultKind: "done", madeAt: new Date().toISOString(),
+    files: [file("gif", 2516582)], ...o,
+  });
+  let shelf = [
+    clip("Cat knocks glass off table", { lane: "ready", ...times("0:12", "0:19"), durationSec: 95 }),
+    clip("Goal highlight, second half", { lane: "ready", ...times("41:30", "41:38"), durationSec: 5400, formats: ["mp4", "gif"], quality: "high", source: "Match day 14" }),
+    clip("Conference talk: keynote", { durationSec: 2892 }),
+    clip("Pasta recipe, step 4", { ...times("5:20", "5:31"), durationSec: 700, formats: ["webp"], source: "Sunday cooking" }),
+    made("Dog at the beach"), made("Soccer penalty", { formats: ["mp4", "gif"], files: [file("mp4", 1887436), file("gif", 2516582)] }),
+    made("Birthday candles"), made("Cooking fail", { resultKind: "partial", resultMessage: "The MP4 couldn't be made." }),
+    made("Private video", { resultKind: "failed", resultMessage: "Couldn't get this video. It may be private or removed.", files: [] }),
+    made("Rainy window loop", { filesMissing: true }),
+  ];
+
   const App = {
     async Settings() { return structuredClone(settings); },
     async Boot() {
       return {
         needsSetup: params.has("setup"), needsAdmin: false,
         settings: structuredClone(settings), themes: ["grey", "mint", "lilac"], binDir,
+        shelf: { clips: structuredClone(shelf), notice: "" },
       };
     },
+    async Save(clips) {
+      if (clips.some((c) => c.lane !== "ready" && c.lane !== "later")) throw "Only ready and later clips are saved.";
+      for (const c of clips) {
+        const i = shelf.findIndex((x) => x.id === c.id);
+        if (i >= 0) shelf[i] = { ...shelf[i], ...c };
+        else shelf.push(clip(c.title, c));
+      }
+      console.info("[dev] Save", clips.map((c) => c.id + ":" + c.lane));
+    },
+    async Remove(rid) { shelf = shelf.filter((c) => c.id !== rid); },
+    async ClearMade() { shelf = shelf.filter((c) => c.lane !== "made"); },
+    async ClearCache() { console.info("[dev] ClearCache"); },
     async Install() {
       const total = 250e6;
       for (let i = 1; i <= 20; i++) later(i * 150, () => emit("setup", { tool: "ffmpeg", done: (total * i) / 20, total }));

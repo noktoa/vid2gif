@@ -74,7 +74,23 @@
 
     <p class="empty" id="empty">Nothing on the shelf yet. Paste or drop a video link to start.</p>
 
-    <ol class="shelf" id="shelf" aria-labelledby="source"></ol>
+    <section class="sec" id="sec-ready" aria-labelledby="h-ready">
+      <div class="sec-h"><h2 id="h-ready">Ready to go</h2><span class="sticker" id="n-ready">0</span><span class="sub">Make clips works on these</span></div>
+      <p class="note none" id="none-ready">Nothing ready yet.</p>
+      <ol class="shelf" id="list-ready" aria-labelledby="h-ready"></ol>
+    </section>
+
+    <section class="sec" id="sec-later" aria-labelledby="h-later">
+      <div class="sec-h"><h2 id="h-later">Later</h2><span class="sticker" id="n-later">0</span><span class="sub">Not ready yet</span>
+        <button class="btn" type="button" id="mark-all">Mark all ready</button></div>
+      <p class="note none" id="none-later">New links land here.</p>
+      <ol class="shelf" id="list-later" aria-labelledby="h-later"></ol>
+    </section>
+
+    <!-- Made before: its list and buttons are built in app.js -->
+    <section class="sec" id="sec-made" aria-labelledby="h-made" hidden>
+      <div class="sec-h"><h2 id="h-made">Made before</h2><span class="sticker" id="n-made">0</span></div>
+    </section>
   </main>
 </div>
 

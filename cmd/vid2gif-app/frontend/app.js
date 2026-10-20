@@ -8,7 +8,7 @@ const App = window.go.main.App;
 const on = (name, cb) => window.runtime.EventsOn(name, cb);
 const $ = (id) => document.getElementById(id);
 const appEl = document.querySelector(".app");
-const shelf = $("shelf");
+const sheet = $("sheet");
 const makeBtn = $("make");
 const linkField = $("link");
 
@@ -90,25 +90,43 @@ function render() {
   if (!frame) frame = requestAnimationFrame(() => { frame = 0; paintAll(); });
 }
 
+const isBusy = (s) => ["queued", "making"].includes(s?.status?.kind); // already sent to Make
+// markable: a Later slip Mark ready would move (the same test as Mark all ready)
+const markable = (s) => s.lane === "later" && S.markReady([s], [s.id])[0].lane === "ready";
+let focusLane = null; // after a slip changes lane, focus its lane button in the new place
+
 function paintAll() {
-  const eye = S.eyeId(slips, previewId);
+  const shown = slips.filter((s) => s.lane !== "made"); // Made before is drawn apart
+  const eye = S.eyeId(shown, previewId);
   if (previewId && eye !== previewId) previewId = null;
-  const header = S.sourceTitle(slips);
-  const ids = new Set(slips.map((s) => s.id));
+  const header = S.sourceTitle(shown);
+  const ids = new Set(shown.map((s) => s.id));
   for (const [id, li] of rows) if (!ids.has(id)) { li.remove(); rows.delete(id); }
-  let prev = null;
-  for (const s of slips) {
-    let li = rows.get(s.id);
-    if (!li) { rows.set(s.id, (li = newRow())); li.dataset.id = s.id; }
-    paint(li, s, eye, header);
-    const want = prev ? prev.nextSibling : shelf.firstChild;
-    if (want !== li) shelf.insertBefore(li, want);
-    prev = li;
+  for (const lane of ["ready", "later"]) {
+    const list = $("list-" + lane);
+    const inLane = S.inLane(slips, lane);
+    let prev = null;
+    for (const s of inLane) {
+      let li = rows.get(s.id);
+      if (!li) { rows.set(s.id, (li = newRow())); li.dataset.id = s.id; }
+      paint(li, s, eye, header);
+      const want = prev ? prev.nextSibling : list.firstChild;
+      if (want !== li) list.insertBefore(li, want);
+      prev = li;
+    }
+    $("n-" + lane).textContent = String(inLane.length);
+    $("none-" + lane).hidden = inLane.length > 0;
+    $("sec-" + lane).hidden = slips.length === 0;
   }
+  $("mark-all").disabled = !slips.some(markable);
+  const made = S.inLane(slips, "made").length;
+  $("n-made").textContent = String(made);
+  $("sec-made").hidden = made === 0;
+  if (focusLane) { rows.get(focusLane)?.querySelector(".push button:not([hidden])")?.focus(); focusLane = null; }
   $("empty").hidden = slips.length > 0;
   $("source").textContent = header || "Your shelf";
-  $("count").textContent = String(slips.length);
-  $("count-word").textContent = slips.length === 1 ? "video" : "videos";
+  $("count").textContent = String(shown.length);
+  $("count-word").textContent = shown.length === 1 ? "video" : "videos";
   if (running) {
     makeBtn.textContent = "Stop";
     makeBtn.disabled = false;
@@ -168,7 +186,8 @@ function paint(li, s, eye, header) {
     row2.querySelector(".lead .note.hint").hidden = !(S.canRetry(s) && msg === GONE);
     row2.querySelector("button.retry").hidden = !S.canRetry(s);
   }
-  if (mode === "slip") { paintTimes(li, s, title); paintOptions(li, s); }
+  if (mode === "slip") { paintTimes(li, s, title); paintOptions(li, s); paintLane(li, s, title); }
+  li.classList.toggle("later", s.lane === "later");
 
   li.classList.toggle("eye", s.id === eye);
   const open = s.id === previewId;
@@ -190,7 +209,7 @@ function buildRow2(s, mode) {
   }
   const input = (which, placeholder) => el("input", {
     class: which, inputmode: "decimal", placeholder, autocomplete: "off", spellcheck: "false",
-    oninput: (e) => { slips = slips.map((x) => (x.id === s.id ? { ...x, [which + "Text"]: e.target.value } : x)); render(); },
+    oninput: (e) => { slips = slips.map((x) => (x.id === s.id ? { ...x, [which + "Text"]: e.target.value } : x)); persist(s.id); render(); },
     onblur: () => validate(s.id, which),
     onkeydown: (e) => { if (e.key === "Enter") validate(s.id, which); },
   });
@@ -198,15 +217,41 @@ function buildRow2(s, mode) {
   // placeholder and value in step with the slip.
   const join = el("select", {
     class: "join", title: "Choose where the clip stops, or how long it runs",
-    onchange: (e) => { slips = S.setEndKind(slips, s.id, e.target.value); render(); validate(s.id, "end"); },
+    onchange: (e) => { slips = S.setEndKind(slips, s.id, e.target.value); persist(s.id); render(); validate(s.id, "end"); },
   }, el("option", { value: "stop", text: "to" }), el("option", { value: "length", text: "for" }));
   return [
     el("label", { class: "time" }, "Start", input("start", "0:00")),
     join,
     el("label", { class: "time" }, el("span", { class: "lab", text: "Stop" }), input("end", "end")),
     el("div", { class: "state" }),
+    el("div", { class: "push" },
+      el("button", { class: "btn quiet to-later", type: "button", text: "Move to Later", onclick: () => setLane(s.id, "later") }),
+      el("button", { class: "btn to-ready", type: "button", text: "Mark ready", onclick: () => setLane(s.id, "ready") })),
     optionsBox(),
   ];
+}
+
+// paintLane: Ready slips offer Move to Later (not while queued or making, when
+// the slip is already on its way to Make); Later slips offer Mark ready, which
+// waits until the slip would pass Make's own check.
+function paintLane(li, s, title) {
+  const [toLater, toReady] = [li.querySelector(".to-later"), li.querySelector(".to-ready")];
+  toLater.hidden = s.lane !== "ready" || isBusy(s);
+  toLater.setAttribute("aria-label", "Move to Later, " + title);
+  toReady.hidden = s.lane !== "later";
+  toReady.disabled = !markable(s);
+  toReady.setAttribute("aria-label", "Mark ready, " + title);
+}
+
+// setLane moves one slip between Ready and Later and saves it. Mark ready only
+// moves a slip that passes the check; moving to Later is refused mid-run.
+function setLane(id, lane) {
+  if (lane === "later" && isBusy(slips.find((s) => s.id === id))) return;
+  slips = lane === "ready" ? S.markReady(slips, [id]) : S.moveToLater(slips, id);
+  if (slips.find((s) => s.id === id)?.lane !== lane) return;
+  persist(id);
+  focusLane = id;
+  render();
 }
 
 // optionsBox is a slip's own formats and quality, hidden under a one-line
@@ -229,10 +274,10 @@ function paintOptions(li, s) {
   box.querySelector("summary").textContent = `${formats.map((f) => FMT[f]).join(" + ")} · ${QUALITY[quality]}`;
   for (const b of box.querySelectorAll(".chip")) b.setAttribute("aria-pressed", String(formats.includes(b.dataset.format)));
   for (const b of box.querySelectorAll(".seg button")) b.setAttribute("aria-pressed", String(b.dataset.quality === quality));
-  box.inert = ["queued", "making"].includes(s.status?.kind); // already sent to Make
+  box.inert = isBusy(s);
 }
 
-shelf.addEventListener("click", (e) => {
+sheet.addEventListener("click", (e) => {
   const b = e.target.closest(".opts button");
   const id = b?.closest("li")?.dataset.id;
   const s = slips.find((x) => x.id === id);
@@ -244,6 +289,7 @@ shelf.addEventListener("click", (e) => {
   } else {
     slips = S.setOptions(slips, id, { quality: b.dataset.quality });
   }
+  persist(id);
   render();
 });
 
@@ -433,12 +479,33 @@ async function validate(id, field) {
       badField: r.message === x.timeMsg ? x.badField : field, checked: S.typed(x), status: keep ? x.status : null,
     };
   });
+  persist(id);
   render();
 }
 
+// ---------- saving ----------
+// toClip is the saved shape of a slip: only the user's own choices and the
+// lookup. Results (status, files) are Go's to keep.
+const CLIP_FIELDS = ["id", "lane", "url", "title", "thumbnailUrl", "durationSec", "source", "unavailable", "reason",
+  "startText", "endText", "endKind", "start", "end", "timeMsg", "checked", "formats", "quality"];
+const toClip = (s) => Object.fromEntries(CLIP_FIELDS.map((k) => [k, s[k] ?? null]));
+
+// Every save and remove is queued behind the one before, so Go sees them in the
+// order they happened, and Make can wait for all of them: it only makes slips
+// whose saved lane is ready. A failure shows the notice and never throws.
+let saving = Promise.resolve();
+const queueSave = (call) => (saving = saving.then(call).catch((err) => notice(String(err?.message || err))));
+// Placeholders and failed lookups aren't saved (Go keeps a found video itself); neither is a made slip.
+function persist(...ids) {
+  const clips = slips.filter((s) => ids.includes(s.id) && s.lane !== "made" && !s.pending && !s.failed).map(toClip);
+  if (clips.length) queueSave(() => App.Save(clips));
+}
+
 function remove(id) {
+  if (isBusy(slips.find((s) => s.id === id))) return;
   slips = slips.filter((s) => s.id !== id);
   previewTab.delete(id);
+  queueSave(() => App.Remove(id));
   render();
   linkField.focus();
 }
@@ -583,6 +650,7 @@ makeBtn.addEventListener("click", async () => {
   try {
     // typed-but-unchecked times are validated first, so jobs carry what was typed
     await Promise.all(S.needsCheck(slips).map((id) => validate(id, slips.find((x) => x.id === id)?.badField || "start")));
+    await saving; // Go makes only what it has saved as ready
   } finally {
     starting = false; // a rejected Validate must not leave the button dead
   }
@@ -595,6 +663,14 @@ makeBtn.addEventListener("click", async () => {
   App.Make(jobs);
 });
 
+$("mark-all").addEventListener("click", () => {
+  const before = S.inLane(slips, "ready").map((s) => s.id);
+  slips = S.markAllReady(slips);
+  persist(...S.inLane(slips, "ready").map((s) => s.id).filter((id) => !before.includes(id)));
+  render();
+});
+
+on("shelf:notice", (m) => notice(m?.message || ""));
 on("slips:replace", (r) => {
   if (dropped.delete(r.id)) return;
   if (!slips.some((s) => s.id === r.id)) { buffered.set(r.id, r); return; }
@@ -663,6 +739,8 @@ showSettings();
 const boot = await App.Boot();
 settings = boot.settings;
 binDir = boot.binDir;
+slips = S.fromShelf(boot.shelf?.clips || []);
+if (boot.shelf?.notice) notice(boot.shelf.notice);
 showSettings();
 render();
 if (boot.needsSetup) showSetup(boot.needsAdmin);
