@@ -6,7 +6,13 @@ Set-Location $PSScriptRoot
 
 $tag = Read-Host 'Git tag (e.g. v0.1.0)'
 if ($tag -notmatch '^v?\d+\.\d+\.\d+(-[\w.]+)?$') { throw "'$tag' doesn't look like a version tag" }
-if (git tag -l $tag) { throw "Tag $tag already exists locally" }
+# A tag left over from a failed release (local, remote or both) is fine; only a published release blocks it.
+$released = gh release list --limit 1000 --json tagName --jq '.[].tagName'
+if ($LASTEXITCODE) { throw 'gh release list failed (is gh installed and logged in?)' }
+if ($released -contains $tag) { throw "A release for $tag already exists on GitHub" }
+$localTag = [bool](git tag -l $tag)
+$remoteTag = [bool](git ls-remote --tags origin "refs/tags/$tag")
+if ($localTag -or $remoteTag) { Write-Warning "Tag $tag already exists (local: $localTag, remote: $remoteTag) with no release; it will be reused where it points, and the files are built from the working tree." }
 if (git status --porcelain) { Write-Warning 'Working tree has uncommitted changes; the release is tagged at the last commit without them.' }
 
 $dist = Join-Path $PSScriptRoot 'dist'
@@ -48,8 +54,11 @@ $sums | Write-Host
 
 if ((Read-Host "Push tag and publish release $tag? [y/N]") -ne 'y') { Write-Host 'Aborted; artifacts are in dist/.'; return }
 
-git tag $tag
-git push origin $tag
-if ($LASTEXITCODE) { throw 'git push failed' }
+# a remote-only tag is left alone: tagging here would put a second, different tag at HEAD
+if (-not ($localTag -or $remoteTag)) { git tag $tag }
+if (-not $remoteTag) {
+    git push origin $tag
+    if ($LASTEXITCODE) { throw 'git push failed' }
+}
 gh release create $tag (Get-ChildItem $dist -File).FullName --title $tag --generate-notes
 if ($LASTEXITCODE) { throw 'gh release create failed' }
