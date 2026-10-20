@@ -10,7 +10,11 @@ if (git tag -l $tag) { throw "Tag $tag already exists locally" }
 if (git status --porcelain) { Write-Warning 'Working tree has uncommitted changes; the release is tagged at the last commit without them.' }
 
 $dist = Join-Path $PSScriptRoot 'dist'
-Remove-Item $dist -Recurse -Force -ErrorAction SilentlyContinue
+# no SilentlyContinue: a running dist\vid2gif-app.exe can't be deleted, and that should stop the release here
+if (Test-Path $dist) {
+    try { Remove-Item $dist -Recurse -Force -ErrorAction Stop }
+    catch { throw "Can't clear dist\ ($($_.Exception.Message)). Close vid2gif-app.exe if it is running from dist\ and retry." }
+}
 New-Item -ItemType Directory $dist | Out-Null
 
 Write-Host 'Building vid2gif.exe...'
