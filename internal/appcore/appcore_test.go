@@ -466,10 +466,10 @@ func TestResolveToolsNeverUsesPATH(t *testing.T) {
 
 func TestValidateReturnsSeconds(t *testing.T) {
 	c, _ := newTestCore(t)
-	if got := c.Validate("1:12", "1:19.5", 0); got != (Times{Start: 72, End: 79.5}) {
+	if got := c.Validate("1:12", "1:19.5", false, 0); got != (Times{Start: 72, End: 79.5}) {
 		t.Errorf("Validate = %+v", got)
 	}
-	if got := c.Validate("", "", 0); got.Message == "" {
+	if got := c.Validate("", "", false, 0); got.Message == "" {
 		t.Error("empty start accepted")
 	}
 }

@@ -32,7 +32,7 @@ body {
 ::selection { background: var(--line); color: var(--ink); }
 :focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
 [hidden] { display: none !important; }
-button, input { font: inherit; color: inherit; }
+button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -170,7 +170,16 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .time input::placeholder { color: var(--hint); font-weight: 400; }
 .time.need input { border-style: dashed; }
 .time input[aria-invalid="true"] { border-color: var(--alert); }
-.arrow { padding-bottom: 8px; color: var(--ink-2); font-weight: 700; }
+/* "to" / "for" between the boxes: a native select, drawn like a standard button */
+.join {
+  appearance: none; min-height: 36px; padding: 0 28px 0 12px; cursor: pointer;
+  font: 700 15px/1.2 var(--font-body); color: var(--ink);
+  background-color: var(--slip); border: 2px solid var(--ink); border-radius: 8px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px; background-repeat: no-repeat;
+}
+.join:hover { background-color: var(--paper); }
 
 .state { margin-left: auto; display: grid; gap: 4px; justify-items: end; text-align: right; min-width: 0; }
 .state.lead { margin-left: 0; justify-items: start; text-align: left; flex: 1 1 14ch; }

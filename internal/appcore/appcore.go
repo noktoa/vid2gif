@@ -411,8 +411,8 @@ func (c *Core) lookupOne(p Slip) {
 	c.send("slips:replace", r)
 }
 
-func (c *Core) Validate(start, end string, durationSec float64) Times {
-	s, e, msg := runner.Validate(start, end, durationSec)
+func (c *Core) Validate(start, end string, endIsLength bool, durationSec float64) Times {
+	s, e, msg := runner.Validate(start, end, endIsLength, durationSec)
 	return Times{s, e, msg}
 }
 

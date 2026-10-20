@@ -3,14 +3,15 @@
 //   pending   placeholder from Add, waiting for slips:replace
 //   source    playlist title or "Pasted links"
 //   startText, endText  what the user typed
+//   endKind   "stop" (endText is a time in the video) or "length" (endText is how long the clip runs)
 //   start     seconds from Validate, null until a valid Start is set
-//   end       seconds, 0 = to the end
+//   end       seconds into the video, 0 = to the end (also when endKind is "length")
 //   timeMsg   Validate's message, "" = fine
-//   checked   "startText|endText" as last validated; start/end belong to it
+//   checked   typed(slip) as last validated; start/end belong to it
 //   status    null (ready) or {kind, stage, pct, stagePct, message, files}
 // Every function returns a new array; the input is never changed.
 
-const blank = { source: "", startText: "", endText: "", start: null, end: 0, timeMsg: "", checked: "|", status: null };
+const blank = { source: "", startText: "", endText: "", endKind: "stop", start: null, end: 0, timeMsg: "", checked: "|", status: null };
 
 // addPlaceholders appends Add's placeholders, ignoring links already on the shelf.
 export function addPlaceholders(slips, newSlips) {
@@ -57,7 +58,7 @@ export function retrySlip(slips, id, placeholder) {
 // made again (another quality or format makes a new file; the same one is
 // answered "already" before any download).
 const canRun = (s) => !s.pending && !s.unavailable && !s.failed && !["queued", "making"].includes(s.status?.kind);
-const typed = (s) => s.startText + "|" + s.endText;
+export const typed = (s) => s.startText + "|" + s.endText + (s.endKind === "length" ? "|length" : "");
 const isReady = (s) => canRun(s) && s.start !== null && !s.timeMsg && s.checked === typed(s);
 
 // needsCheck: slips whose typed times haven't been validated yet; Make
@@ -86,6 +87,19 @@ const update = (slips, id, fn) => {
   out[i] = fn(slips[i]);
   return out;
 };
+
+// setEndKind flips the second box between a stop time and a length. A slip
+// whose times are validated keeps its meaning (the box is rewritten to match);
+// otherwise the box is cleared, because "0:30" would now mean something else.
+export function setEndKind(slips, id, kind) {
+  return update(slips, id, (s) => {
+    if (kind === (s.endKind || "stop")) return s;
+    const settled = s.start !== null && !s.timeMsg && s.checked === typed(s);
+    const whole = Number.isInteger(s.start) && Number.isInteger(s.end);
+    const endText = settled && whole && s.end > 0 ? formatDuration(kind === "length" ? s.end - s.start : s.end) : "";
+    return { ...s, endKind: kind, endText };
+  });
+}
 
 // applyStatus folds one slip:status event into the list. Files always come
 // from the event: a new run's result replaces the previous run's.

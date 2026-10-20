@@ -48,8 +48,8 @@ func (a *App) Add(text string) []appcore.Slip { return a.core.Add(text) }
 func (a *App) Make(jobs []runner.Job)         { a.core.Make(jobs) }
 func (a *App) Stop()                          { a.core.Stop() }
 
-func (a *App) Validate(start, end string, durationSec float64) appcore.Times {
-	return a.core.Validate(start, end, durationSec)
+func (a *App) Validate(start, end string, endIsLength bool, durationSec float64) appcore.Times {
+	return a.core.Validate(start, end, endIsLength, durationSec)
 }
 
 func (a *App) SaveSettings(s settings.Settings) error { return a.core.SaveSettings(s) }

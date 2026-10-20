@@ -194,10 +194,16 @@ function buildRow2(s, mode) {
     onblur: () => validate(s.id, which),
     onkeydown: (e) => { if (e.key === "Enter") validate(s.id, which); },
   });
+  // "to" takes a stop time, "for" takes a length; paintTimes keeps the label,
+  // placeholder and value in step with the slip.
+  const join = el("select", {
+    class: "join", title: "Choose where the clip stops, or how long it runs",
+    onchange: (e) => { slips = S.setEndKind(slips, s.id, e.target.value); render(); validate(s.id, "end"); },
+  }, el("option", { value: "stop", text: "to" }), el("option", { value: "length", text: "for" }));
   return [
     el("label", { class: "time" }, "Start", input("start", "0:00")),
-    el("span", { class: "arrow", text: "to" }),
-    el("label", { class: "time" }, "Stop", input("end", "end")),
+    join,
+    el("label", { class: "time" }, el("span", { class: "lab", text: "Stop" }), input("end", "end")),
     el("div", { class: "state" }),
   ];
 }
@@ -210,11 +216,17 @@ function paintTimes(li, s, title) {
   if (document.activeElement !== start && start.value !== s.startText) start.value = s.startText;
   if (document.activeElement !== end && end.value !== s.endText) end.value = s.endText;
   start.setAttribute("aria-label", "Start, " + title);
-  end.setAttribute("aria-label", "Stop, " + title);
+  const len = s.endKind === "length";
+  const join = li.querySelector("select.join");
+  join.value = len ? "length" : "stop";
+  join.setAttribute("aria-label", "Stop time or length, " + title);
+  li.querySelector(".time .lab").textContent = len ? "Length" : "Stop";
+  end.placeholder = len ? "to end" : "end";
+  end.setAttribute("aria-label", (len ? "Length, " : "Stop, ") + title);
 
   const needStart = !s.startText.trim();
   const msg = needStart ? NEED_START : s.timeMsg;
-  const bad = msg && !needStart ? (s.timeMsg.startsWith("Stop") ? "end" : s.badField || "start") : "";
+  const bad = msg && !needStart ? (/^(Stop|Length)/.test(s.timeMsg) ? "end" : s.badField || "start") : "";
   start.parentElement.classList.toggle("need", needStart);
   for (const [inp, which] of [[start, "start"], [end, "end"]]) {
     if (bad === which) inp.setAttribute("aria-invalid", "true");
@@ -371,15 +383,15 @@ function closePreview(id) {
 async function validate(id, field) {
   const s = slips.find((x) => x.id === id);
   if (!s) return;
-  const { startText, endText } = s;
-  const r = await App.Validate(startText, endText, s.durationSec);
+  const { startText, endText, endKind } = s;
+  const r = await App.Validate(startText, endText, endKind === "length", s.durationSec);
   slips = slips.map((x) => {
-    if (x.id !== id || x.startText !== startText || x.endText !== endText) return x; // gone or retyped
-    const changed = (x.checked ?? "|") !== startText + "|" + endText;
+    if (x.id !== id || x.startText !== startText || x.endText !== endText || x.endKind !== endKind) return x; // gone or retyped
+    const changed = (x.checked ?? "|") !== S.typed(x);
     const keep = !changed || !x.status || ["queued", "making"].includes(x.status.kind);
     return {
       ...x, start: r.message ? null : r.start, end: r.message ? 0 : r.end, timeMsg: r.message,
-      badField: r.message === x.timeMsg ? x.badField : field, checked: startText + "|" + endText, status: keep ? x.status : null,
+      badField: r.message === x.timeMsg ? x.badField : field, checked: S.typed(x), status: keep ? x.status : null,
     };
   });
   render();

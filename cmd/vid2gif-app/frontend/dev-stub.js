@@ -97,7 +97,7 @@
       }));
       return placeholders;
     },
-    async Validate(start, end, durationSec) {
+    async Validate(start, end, endIsLength, durationSec) {
       const bad = "That time doesn't look right. Try 1:23 or 0:01:23.";
       if (!start.trim()) return { start: 0, end: 0, message: "Add a start time to include this one." };
       const s = parse(start);
@@ -106,10 +106,15 @@
       if (end.trim()) {
         e = parse(end);
         if (Number.isNaN(e)) return { start: 0, end: 0, message: bad };
-        if (e <= s) return { start: 0, end: 0, message: "Stop must be after Start." };
+        if (endIsLength) {
+          if (e === 0) return { start: 0, end: 0, message: "Length must be more than zero." };
+          e += s;
+        } else if (e <= s) return { start: 0, end: 0, message: "Stop must be after Start." };
       }
       if (durationSec > 0 && s >= durationSec) return { start: 0, end: 0, message: "That's past the end of the video." };
-      if (durationSec > 0 && e > durationSec) return { start: 0, end: 0, message: "Stop is past the end of the video." };
+      if (durationSec > 0 && e > durationSec) {
+        return { start: 0, end: 0, message: endIsLength ? "Length runs past the end of the video." : "Stop is past the end of the video." };
+      }
       return { start: s, end: e, message: "" };
     },
     // Each job walks find -> download -> gif -> mp4 -> an end state; the

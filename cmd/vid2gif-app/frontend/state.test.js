@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   addPlaceholders, replaceSlip, readyJobs, applyStatus, eyeId, makeLabel,
   formatDuration, stageLabel, barValue, needsCheck, makeCount, startRun, endRun, sourceTitle,
-  setupProgress, formatSize, clipLength, canRetry, retrySlip,
+  setupProgress, formatSize, clipLength, canRetry, retrySlip, setEndKind, typed,
 } from "./state.js";
 
 const slip = (id, more = {}) => ({
@@ -249,4 +249,25 @@ test("formatSize and clipLength", () => {
   assert.equal(clipLength(ready("a", { end: 17 })), 7);
   assert.equal(clipLength(ready("a", { durationSec: 70 })), 60);
   assert.equal(clipLength(ready("a", { durationSec: 0 })), 0);
+});
+
+test("setEndKind rewrites a validated end to match, and clears one that is not validated", () => {
+  const stop = ready("a", { startText: "1:00", start: 60, endText: "1:30", end: 90, checked: "1:00|1:30" });
+  const asLength = setEndKind([stop], "a", "length")[0];
+  assert.deepEqual([asLength.endKind, asLength.endText], ["length", "0:30"]);
+  assert.notEqual(typed(asLength), stop.checked); // so it is validated again
+  const back = setEndKind([{ ...asLength, checked: typed(asLength) }], "a", "stop")[0];
+  assert.deepEqual([back.endKind, back.endText], ["stop", "1:30"]);
+  const typing = ready("b", { startText: "1:00", endText: "0:30", checked: "|" });
+  assert.equal(setEndKind([typing], "b", "length")[0].endText, "");
+  const toEnd = ready("c", { startText: "1:00", start: 60, endText: "", end: 0, checked: "1:00|" });
+  assert.equal(setEndKind([toEnd], "c", "length")[0].endText, "");
+  const same = [stop];
+  assert.equal(setEndKind(same, "a", "stop")[0], stop);
+  assert.equal(setEndKind(same, "nope", "length"), same);
+});
+
+test("a length slip needs its own check, even with the same text", () => {
+  const s = ready("a", { endText: "0:05", checked: "0:10|0:05", endKind: "length" });
+  assert.deepEqual(needsCheck([s]), ["a"]);
 });
