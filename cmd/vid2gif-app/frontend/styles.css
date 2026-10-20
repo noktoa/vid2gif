@@ -152,6 +152,26 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .row2 .push { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 6px; align-items: center; }
 .sec-h h2:focus { outline: none; } /* focus lands here for Mark all ready; it isn't a control */
 
+/* Made before: the return log, one line per clip */
+.log { list-style: none; margin: 0; padding: 0; background: var(--slip); border: 1.5px solid var(--ink); border-radius: 10px; }
+.log > li + li { border-top: 2px dashed var(--line); }
+.log .row {
+  width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  background: transparent; border: 0; border-radius: 8px; padding: 8px 12px; text-align: left;
+}
+.log .row:hover, .log > li:has(.row[aria-expanded="true"]) { background: var(--paper); }
+.log > li:has(.row[aria-expanded="true"]) { border-radius: 8px; }
+.log .row:focus-visible { outline-offset: -3px; }
+.log .thumb { width: 44px; border-width: 1.5px; }
+.log .what { display: grid; gap: 1px; min-width: 0; }
+.log .t { font-weight: 700; font-size: 15px; line-height: 1.25; overflow-wrap: anywhere; }
+.log .m { color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.log .row .stamp { font-size: 12px; padding: 4px 6px 3px; border-width: 2px; border-radius: 5px; transform: rotate(-4deg); animation: none; }
+.log .detail { padding: 0 12px 10px 68px; display: grid; gap: 6px; justify-items: start; }
+.log .detail .note { max-width: none; }
+.log .inline-preview { margin: 0 12px; }
+.sec > .more { justify-self: start; }
+
 /* a slip: card stock with a perforated stub; the notches are cut from the ground */
 .slip {
   --stub: 92px; position: relative; display: grid; grid-template-columns: var(--stub) minmax(0, 1fr);
@@ -309,6 +329,7 @@ button.stamp:hover { background: var(--paper); }
 .settings-menu legend.lbl { margin-bottom: 8px; }
 .settings-menu .path { flex: 1 1 0; }
 .settings-menu .where { flex-wrap: nowrap; }
+.settings-menu .confirm { display: grid; gap: 8px; }
 
 /* ---------- first launch ---------- */
 .setup-screen {

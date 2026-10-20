@@ -97,10 +97,16 @@ const isBusy = (s) => ["queued", "making"].includes(s?.status?.kind); // already
 const markable = (s) => s.lane === "later" && !s.pending && !s.unavailable && !s.failed && !!s.startText.trim()
   && (s.checked !== S.typed(s) || !s.timeMsg);
 let focusLane = null; // after a slip changes lane, focus its lane button in the new place
+let focusStart = null; // after Make again, focus the new Later slip's Start box
+let showAllMade = false; // Made before shows 5 lines until Show more
+const madeRows = new Map(); // made slip id -> <li> in the log
+const expanded = new Set(); // made lines opened without a preview (no files to play)
 
 function paintAll() {
   const shown = slips.filter((s) => s.lane !== "made"); // Made before is drawn apart
-  const eye = S.eyeId(shown, previewId);
+  const madeShown = S.madeVisible(slips, showAllMade);
+  // a preview belongs to a slip on the shelf or a visible line of the log
+  const eye = S.eyeId([...shown, ...madeShown], previewId);
   if (previewId && eye !== previewId) previewId = null;
   const header = S.sourceTitle(shown);
   const ids = new Set(shown.map((s) => s.id));
@@ -125,7 +131,12 @@ function paintAll() {
   const made = S.inLane(slips, "made").length;
   $("n-made").textContent = String(made);
   $("sec-made").hidden = made === 0;
+  paintMade(madeShown, made);
+  $("clear-cache").disabled = running;
+  $("cache-yes").disabled = running;
+  $("cache-wait").hidden = !running;
   if (focusLane) { rows.get(focusLane)?.querySelector(".push button:not([hidden]):not(:disabled)")?.focus(); focusLane = null; }
+  if (focusStart) { rows.get(focusStart)?.querySelector("input.start")?.focus(); focusStart = null; }
   $("empty").hidden = slips.length > 0;
   $("source").textContent = header || "Your shelf";
   $("count").textContent = String(shown.length);
@@ -467,7 +478,7 @@ function buildPreview(s, files, f) {
       onclick: () => {
         previewTab.set(s.id, x.format);
         paintAll();
-        rows.get(s.id)?.querySelector(`.fmt-tabs [data-format="${x.format}"]`)?.focus();
+        (rows.get(s.id) || madeRows.get(s.id))?.querySelector(`.fmt-tabs [data-format="${x.format}"]`)?.focus();
       },
     }))) : null;
   return el("div", { class: "inline-preview" + (player ? "" : " no-player"), id: "preview-" + s.id, role: "region", "aria-label": "Preview of " + title },
@@ -487,7 +498,112 @@ function buildPreview(s, files, f) {
 function closePreview(id) {
   previewId = null;
   paintAll();
-  rows.get(id)?.querySelector("button.stamp")?.focus();
+  (rows.get(id) || madeRows.get(id))?.querySelector("button.stamp, button.row")?.focus();
+}
+
+// ---------- Made before: the return log ----------
+// One line per clip, newest first. A line with files to play opens the preview;
+// one without (failed, or its files moved) opens its message instead.
+const playableLine = (s) => !!s.status?.files?.length && !s.filesMissing;
+const lineOpen = (s) => (playableLine(s) ? s.id === previewId : expanded.has(s.id));
+
+function paintMade(visible, total) {
+  const list = $("list-made");
+  const keep = new Set(visible.map((s) => s.id));
+  for (const [id, li] of madeRows) if (!keep.has(id)) { li.remove(); madeRows.delete(id); }
+  let prev = null;
+  for (const s of visible) {
+    let li = madeRows.get(s.id);
+    if (!li) { madeRows.set(s.id, (li = newLine(s.id))); li.dataset.id = s.id; }
+    paintLine(li, s);
+    const want = prev ? prev.nextSibling : list.firstChild;
+    if (want !== li) list.insertBefore(li, want);
+    prev = li;
+  }
+  $("more-made").hidden = visible.length >= total;
+}
+
+function newLine(id) {
+  return el("li", {},
+    el("button", { class: "row", type: "button", "aria-controls": "made-" + id, onclick: () => toggleLine(id) },
+      el("div", { class: "thumb" }),
+      el("span", { class: "what" }, el("span", { class: "t" }), el("span", { class: "m" })),
+      el("span", { class: "stamp" })),
+    el("div", { class: "detail", id: "made-" + id }));
+}
+
+function toggleLine(id) {
+  const s = slips.find((x) => x.id === id);
+  if (!s) return;
+  if (playableLine(s)) previewId = previewId === id ? null : id;
+  else if (!expanded.delete(id)) expanded.add(id);
+  render();
+}
+
+function paintLine(li, s) {
+  const title = titleOf(s);
+  const stamp = S.stampFor(s);
+  const files = s.status?.files || [];
+  const open = lineOpen(s);
+  li.querySelector(".t").textContent = title;
+  const formats = (s.formats?.length ? s.formats : files.map((f) => f.format)).map((f) => FMT[f] || f.toUpperCase()).join(" + ");
+  const when = s.madeAt ? new Date(s.madeAt) : null;
+  const day = when && !isNaN(when) ? when.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "";
+  li.querySelector(".m").textContent = [formats, QUALITY[s.quality || settings.quality], day].filter(Boolean).join(" · ");
+  const st = li.querySelector(".stamp");
+  st.hidden = !stamp;
+  st.textContent = stamp?.label || "";
+  st.classList.toggle("done", stamp?.tone === "good");
+  st.classList.toggle("bad", stamp?.tone === "bad");
+
+  const failed = s.status?.kind === "failed";
+  const thumbKey = failed + "|" + s.thumbnailUrl;
+  if (li._thumb !== thumbKey) {
+    li._thumb = thumbKey;
+    const t = li.querySelector(".thumb");
+    t.replaceChildren();
+    if (failed || !isHttps(s.thumbnailUrl)) t.append(icon("scene-none"));
+    else {
+      const img = el("img", { src: s.thumbnailUrl, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+      img.addEventListener("error", () => img.replaceWith(icon("scene-none")));
+      t.append(img);
+    }
+  }
+
+  const row = li.querySelector("button.row");
+  row.setAttribute("aria-expanded", String(open));
+  const detail = li.querySelector(".detail");
+  detail.hidden = !open;
+  const key = JSON.stringify([s.status?.kind, s.status?.message, s.filesMissing, files.length]);
+  if (li._detail !== key) {
+    li._detail = key;
+    const failedOrPartly = s.status?.message && s.status.kind !== "done" && s.status.kind !== "already";
+    detail.replaceChildren(...[
+      failedOrPartly ? el("p", { class: "note alert", text: s.status.message }) : null,
+      files.length && s.filesMissing ? el("p", { class: "note", text: "File moved or deleted." }) : null,
+      el("div", { class: "actions" },
+        el("button", { class: "btn", type: "button", text: "Make again", "aria-label": "Make again, " + title, onclick: () => makeAgain(s.id) }),
+        el("button", { class: "btn quiet", type: "button", text: "Remove", "aria-label": "Remove " + title, onclick: () => remove(s.id) })),
+    ].filter(Boolean));
+  } else {
+    // titles can change on a re-lookup; keep the names in step without rebuilding
+    const [again, rm] = detail.querySelectorAll("button");
+    again.setAttribute("aria-label", "Make again, " + title);
+    rm.setAttribute("aria-label", "Remove " + title);
+  }
+  paintPreview(li, s, s.id === previewId);
+}
+
+// makeAgain puts a fresh copy of the made clip in Later and saves it; the log
+// line stays as the record. Focus moves to the new clip's Start box.
+function makeAgain(id) {
+  const copy = crypto.randomUUID();
+  const next = S.makeAgain(slips, id, copy);
+  if (next === slips) return;
+  slips = next;
+  persist(copy);
+  focusStart = copy;
+  render();
 }
 
 // ---------- actions ----------
@@ -531,6 +647,8 @@ function remove(id) {
   if (isBusy(slips.find((s) => s.id === id))) return;
   slips = slips.filter((s) => s.id !== id);
   previewTab.delete(id);
+  expanded.delete(id);
+  if (previewId === id) previewId = null;
   queueSave(() => App.Remove(id));
   render();
   linkField.focus();
@@ -638,7 +756,10 @@ for (const r of document.querySelectorAll('input[name="fullSource"]')) r.addEven
 $("debug").addEventListener("change", (e) => save({ ...settings, debugMode: e.target.checked }));
 $("open-bin").addEventListener("click", () => App.OpenFolder(binDir));
 $("open-logs").addEventListener("click", () => App.OpenLogs());
-$("settings").addEventListener("toggle", (e) => $("gear").setAttribute("aria-expanded", String(e.newState === "open")));
+$("settings").addEventListener("toggle", (e) => {
+  $("gear").setAttribute("aria-expanded", String(e.newState === "open"));
+  if (e.newState !== "open") { $("cache-confirm").hidden = true; $("clear-cache").hidden = false; } // the question doesn't wait for next time
+});
 
 // ---------- adding links: the field, paste anywhere, drop ----------
 $("paste").addEventListener("submit", async (e) => {
@@ -696,7 +817,58 @@ $("mark-all").addEventListener("click", async () => {
   if (moved.length) $("h-ready").focus();
 });
 
-on("shelf:notice", (m) => notice(m?.message || ""));
+// Show more reveals the rest of the log at once and goes away, so focus moves to
+// the first line it added
+$("more-made").addEventListener("click", () => {
+  const shown = S.madeVisible(slips, false).length;
+  showAllMade = true;
+  paintAll();
+  const added = S.madeVisible(slips, true)[shown];
+  madeRows.get(added?.id)?.querySelector("button.row")?.focus();
+});
+
+// Clear made forgets the history only; no files are touched, so it doesn't ask.
+$("clear-made").addEventListener("click", async () => {
+  try {
+    await App.ClearMade();
+  } catch (err) {
+    return notice(String(err?.message || err));
+  }
+  slips = slips.filter((s) => s.lane !== "made");
+  expanded.clear();
+  previewId = slips.some((s) => s.id === previewId) ? previewId : null;
+  showAllMade = false;
+  render();
+  linkField.focus();
+});
+
+// Clear cache asks once, in place, because it throws away queued work too.
+const cacheAsk = (asking) => {
+  $("cache-confirm").hidden = !asking;
+  $("clear-cache").hidden = asking;
+  $(asking ? "cache-no" : "clear-cache").focus();
+};
+$("clear-cache").addEventListener("click", () => cacheAsk(true));
+$("cache-no").addEventListener("click", () => cacheAsk(false));
+$("cache-yes").addEventListener("click", async () => {
+  try {
+    await App.ClearCache();
+  } catch (err) {
+    cacheAsk(false);
+    return notice(String(err?.message || err));
+  }
+  slips = [];
+  previewId = null;
+  expanded.clear();
+  previewTab.clear();
+  showAllMade = false;
+  notice("");
+  cacheAsk(false);
+  render();
+  $("settings").hidePopover?.(); // so the empty shelf shows; focus goes back to the gear
+});
+
+on("shelf:notice",(m) => notice(m?.message || ""));
 on("slips:replace", (r) => {
   if (dropped.delete(r.id)) return;
   if (!slips.some((s) => s.id === r.id)) { buffered.set(r.id, r); return; }

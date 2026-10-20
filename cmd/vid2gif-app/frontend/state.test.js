@@ -365,6 +365,7 @@ test("makeAgain appends a fresh copy to Later and leaves the made slip alone", (
   const c = out[2];
   assert.deepEqual([c.id, c.lane, c.status, c.resultKind, c.filesMissing], ["n1", "later", null, "", false]);
   assert.deepEqual([c.url, c.startText, c.endText, c.start, c.end, c.formats, c.quality, c.checked], [made.url, "0:10", "0:20", 10, 20, ["gif"], "high", made.checked]);
+  assert.notEqual(c.formats, made.formats); // a copy, so editing one never changes the other
   assert.equal(makeAgain(s, "nope", "n2"), s);
 });
 

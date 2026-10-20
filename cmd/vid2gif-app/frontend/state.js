@@ -118,7 +118,8 @@ export function applyStatus(slips, e) {
       const pct = e.pct < 0 ? -1 : Math.max(prev, e.pct);
       return { ...s, status: { kind: "making", stage: e.stage, pct, stagePct: e.stagePct, message: "", files } };
     }
-    return { ...s, lane: "made", status: { kind: e.kind, stage: "", pct: e.pct, stagePct: -1, message: e.message || "", files } };
+    // madeAt: the day the log shows; a clip made this session has none from Go yet
+    return { ...s, lane: "made", madeAt: s.madeAt || new Date().toISOString(), status: { kind: e.kind, stage: "", pct: e.pct, stagePct: -1, message: e.message || "", files } };
   });
   // a slip that just finished goes last, which is what keeps Made in the order things were made
   const done = out.find((s) => s.id === e.jobId);
@@ -151,7 +152,7 @@ export function makeAgain(slips, oldId, newId) {
   const old = slips.find((s) => s.id === oldId);
   if (!old) return slips;
   const { createdAt, madeAt, ...rest } = old;
-  return [...slips, { ...rest, id: newId, lane: "later", status: null, resultKind: "", filesMissing: false }];
+  return [...slips, { ...rest, id: newId, lane: "later", formats: [...(old.formats || [])], status: null, resultKind: "", filesMissing: false }];
 }
 
 // stampFor: the stamp on a made slip.

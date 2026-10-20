@@ -87,9 +87,12 @@
       <ol class="shelf" id="list-later" aria-labelledby="h-later"></ol>
     </section>
 
-    <!-- Made before: its list and buttons are built in app.js -->
+    <!-- Made before: the return log; its rows are built in app.js -->
     <section class="sec" id="sec-made" aria-labelledby="h-made" hidden>
-      <div class="sec-h"><h2 id="h-made">Made before</h2><span class="sticker" id="n-made">0</span></div>
+      <div class="sec-h"><h2 id="h-made">Made before</h2><span class="sticker" id="n-made">0</span>
+        <button class="btn quiet" type="button" id="clear-made">Clear made</button></div>
+      <ul class="log" id="list-made" aria-labelledby="h-made"></ul>
+      <button class="btn quiet more" type="button" id="more-made" hidden>Show more</button>
     </section>
   </main>
 </div>
@@ -121,6 +124,19 @@
     <label class="switch">Troubleshooting<input type="checkbox" role="switch" id="debug" aria-describedby="debug-note"></label>
     <p class="note" id="debug-note">Saves a log of what the app does, including the video links you use, so a problem can be diagnosed.</p>
     <div class="actions"><button class="btn" type="button" id="open-logs"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg>Open logs folder</button></div>
+  </div>
+
+  <div class="group" role="group" aria-labelledby="lbl-cache"><span class="lbl" id="lbl-cache">Clear cache</span>
+    <p class="note" id="cache-note">Forgets your shelf and history. Your clips folder is not touched.</p>
+    <p class="note" id="cache-wait" hidden>Wait for the clips to finish, or press Stop, first.</p>
+    <div class="actions"><button class="btn" type="button" id="clear-cache" aria-describedby="cache-note">Clear cache</button></div>
+    <div class="confirm" id="cache-confirm" hidden>
+      <p class="note alert" id="cache-q">Are you sure? This removes your ready and later clips too.</p>
+      <div class="actions">
+        <button class="btn" type="button" id="cache-yes" aria-describedby="cache-q">Yes, clear</button>
+        <button class="btn" type="button" id="cache-no" aria-describedby="cache-q">Cancel</button>
+      </div>
+    </div>
   </div>
 </div>
 
