@@ -124,6 +124,9 @@ const (
 	adminMsg   = "The helper files couldn't be set up for your account. Ask an administrator to run Repair for vid2gif in Windows' installed apps, or reinstall it for just you."
 	installMsg = "Couldn't download the helper files. Check your connection and try again."
 	lookupMsg  = "Couldn't look this one up. Remove it and add the link again."
+	// offPinMsg follows a failure an old helper tool could cause, when a tool
+	// found on PATH isn't the version the app was tested with.
+	offPinMsg = "The helper files on this computer aren't the versions this app was tested with, which may be why. Reinstalling with the helper files ticked uses the tested ones."
 )
 
 type Core struct {
@@ -155,6 +158,7 @@ type Core struct {
 	mu       sync.Mutex
 	settings settings.Settings
 	tools    *Tools             // last successful resolve
+	offPin   atomic.Bool        // the last resolve used a PATH tool that isn't its pinned version
 	cancel   context.CancelFunc // non-nil while a run is going
 	done     chan struct{}      // closed when the latest run has ended
 }
@@ -175,7 +179,10 @@ func New(emit Emit, log *debuglog.Log, settingsPath, binDir string, pins deps.Pi
 		settings: s,
 	}
 	c.resolve = func() (Tools, error) {
-		return ResolveTools(binDir, pins, func(s string) { log.Printf("warning: %s", s) })
+		off := false
+		t, err := ResolveTools(binDir, pins, func(s string) { off = true; log.Printf("warning: %s", s) })
+		c.offPin.Store(off)
+		return t, err
 	}
 	c.lookup = func(ctx context.Context, t Tools, link string) (string, []lookup.Video, error) {
 		return lookup.Looker{YtDlp: t.YtDlp, Deno: t.Deno, Log: log}.Lookup(ctx, link)
@@ -293,9 +300,9 @@ func (c *Core) logHeader() {
 	for i, name := range []string{"yt-dlp", "ffmpeg", "deno"} {
 		where := "not installed or not the pinned version"
 		if t != nil {
-			where = "using " +[3]string{t.YtDlp, t.FFmpeg, t.Deno}[i]
+			where = "using " + [3]string{t.YtDlp, t.FFmpeg, t.Deno}[i]
 		}
-		c.Log.Printf("tool: %s %s (pinned), %s", name, c.pins[name].Version, where)
+		c.Log.Printf("tool: %s (pin %s), %s", name, c.pins[name].Version, where)
 	}
 }
 
@@ -467,6 +474,9 @@ func (c *Core) run(ctx context.Context, cancel context.CancelFunc, done chan str
 func (c *Core) status(e runner.Event) Status {
 	st := Status{Event: e, Files: make([]PageFile, 0, len(e.Files))}
 	st.Event.Files = nil
+	if c.offPin.Load() && runner.ToolTrouble(e.Message) {
+		st.Message += " " + offPinMsg
+	}
 	for _, f := range e.Files {
 		u, _ := c.Files.URL(f.Path)
 		st.Files = append(st.Files, PageFile{f.Format, f.Path, f.Size, u})

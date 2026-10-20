@@ -220,6 +220,26 @@ func TestStatusConvertsFilesToURLs(t *testing.T) {
 	}
 }
 
+func TestStatusHintsAtOffPinToolsOnlyForToolTrouble(t *testing.T) {
+	c, _ := newTestCore(t)
+	site := runner.PlainError(errors.New("ERROR: http error 403"), false)
+	gone := runner.PlainError(errors.New("ERROR: private video"), false)
+
+	if got := c.status(runner.Event{Kind: "failed", Message: site}).Message; got != site {
+		t.Errorf("tools on their pins: message %q, want it unchanged", got)
+	}
+	c.offPin.Store(true)
+	if got := c.status(runner.Event{Kind: "failed", Message: site}).Message; got != site+" "+offPinMsg {
+		t.Errorf("off-pin tools: message %q, want the hint appended", got)
+	}
+	if got := c.status(runner.Event{Kind: "failed", Message: gone}).Message; got != gone {
+		t.Errorf("private video: message %q, want it unchanged", got)
+	}
+	if got := c.status(runner.Event{Kind: "making"}).Message; got != "" {
+		t.Errorf("no message: got %q", got)
+	}
+}
+
 func TestThrottleSetup(t *testing.T) {
 	var got []SetupProgress
 	clock := time.Unix(0, 0)

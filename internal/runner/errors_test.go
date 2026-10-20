@@ -53,6 +53,26 @@ func TestPlainError(t *testing.T) {
 	}
 }
 
+func TestToolTrouble(t *testing.T) {
+	for _, c := range []struct {
+		err  string
+		want bool
+	}{
+		{"ERROR: http error 403", true},
+		{"ffmpeg: exit status 1\nsomething odd", true},
+		{"ERROR: Private video", false},
+		{"dial tcp: no such host", false},
+		{"permission denied", false},
+	} {
+		if got := ToolTrouble(PlainError(errors.New(c.err), false)); got != c.want {
+			t.Errorf("ToolTrouble(PlainError(%q)) = %v, want %v", c.err, got, c.want)
+		}
+	}
+	if ToolTrouble("") {
+		t.Error(`ToolTrouble("") = true`)
+	}
+}
+
 // TestPlainErrorRealOfflineOutput feeds yt-dlp's real Windows stderr (pinned
 // 2026.08.19, captured 2026-10-19): an unresolvable host, and a dead proxy
 // for YouTube (urllib) and Vimeo (curl_cffi).

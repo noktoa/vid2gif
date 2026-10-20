@@ -6,7 +6,18 @@ import (
 	"strings"
 )
 
-const folderMsg = "Couldn't save to that folder. Pick another one."
+const (
+	folderMsg  = "Couldn't save to that folder. Pick another one."
+	siteMsg    = "This site isn't working with the app right now. An update may fix it."
+	genericMsg = "Something went wrong with this one."
+)
+
+// ToolTrouble reports whether a PlainError message is one an out-of-date
+// helper tool could cause: the site-broken and don't-know messages, not a
+// private video, no internet or an unwritable folder.
+func ToolTrouble(msg string) bool {
+	return strings.HasPrefix(msg, siteMsg) || strings.HasPrefix(msg, genericMsg)
+}
 
 // plainErrors are checked in order on the lowercased error text, which holds
 // yt-dlp's stderr (via clip): private/removed wins over the site-broken
@@ -18,7 +29,7 @@ var plainErrors = []struct {
 	{[]string{"private video", "video unavailable", "has been removed"},
 		"Couldn't get this video. It may be private or removed."},
 	{[]string{"unable to extract", "sign in to confirm", "http error 403", "nsig extraction failed"},
-		"This site isn't working with the app right now. An update may fix it."},
+		siteMsg},
 	// Go's net errors, then yt-dlp's (Python) on Windows: see testdata/offline-*.txt.
 	{[]string{"no such host", "dial tcp", "timeout", "timed out", "network is unreachable",
 		"getaddrinfo failed", "failed to resolve", "unable to connect to proxy", "failed to establish a new connection",
@@ -43,7 +54,7 @@ func PlainError(err error, debugOn bool) string {
 		}
 	}
 	if debugOn {
-		return "Something went wrong with this one. Details were saved to the log."
+		return genericMsg + " Details were saved to the log."
 	}
-	return "Something went wrong with this one. Turn on troubleshooting in Settings and try again to save details."
+	return genericMsg + " Turn on troubleshooting in Settings and try again to save details."
 }
