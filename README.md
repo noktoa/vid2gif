@@ -1,3 +1,5 @@
+<p align="center"><img src="cmd/vid2gif-app/icon.svg" alt="vid2gif" width="128" height="128"></p>
+
 # vid2gif
 
 Cut a segment out of an online video and save it as a GIF, an animated WebP, an MP4, a MOV, or any mix. Give it a link and a start time (an end time is optional).
