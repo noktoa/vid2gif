@@ -50,9 +50,15 @@ func (c *Core) storeFailed(err error) error {
 	return err
 }
 
-// validID keeps an ID from the page usable as a single folder name.
+// validID is a whitelist (shelf.NewID gives hex): an ID from the page is also a
+// folder name under scratch, so "." ".." and separators must never pass.
 func validID(id string) bool {
-	return id != "" && id != "." && id == filepath.Base(id)
+	for _, r := range id {
+		if r != '-' && r != '_' && (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return false
+		}
+	}
+	return id != ""
 }
 
 // Save writes clips in the ready and later lanes. An existing row keeps its
@@ -69,6 +75,11 @@ func (c *Core) Save(clips []shelf.Clip) error {
 	old, err := c.store.Load()
 	if err != nil {
 		return c.storeFailed(err)
+	}
+	for _, cl := range clips { // a stale page must not pull a made clip back
+		if i := slices.IndexFunc(old, func(o shelf.Clip) bool { return o.ID == cl.ID }); i >= 0 && old[i].Lane == shelf.LaneMade {
+			return errors.New("That clip can't be saved there.")
+		}
 	}
 	for _, cl := range clips {
 		cl.CreatedAt, cl.MadeAt, cl.ResultKind, cl.ResultMessage, cl.Files = time.Time{}, time.Time{}, "", "", nil

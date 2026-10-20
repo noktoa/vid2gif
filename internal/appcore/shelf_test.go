@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"vid2gif/internal/debuglog"
 	"vid2gif/internal/deps"
@@ -113,17 +114,65 @@ func TestSaveRejectsMadeLaneAndKeepsExistingResult(t *testing.T) {
 	if err := c.Save([]shelf.Clip{{ID: "a", Lane: shelf.LaneMade, URL: "u"}}); err == nil {
 		t.Error("Save accepted the made lane")
 	}
-	if err := c.Save([]shelf.Clip{{ID: "a", Lane: shelf.LaneReady, URL: "u", ResultKind: "failed", ResultMessage: "forged", Files: nil}}); err != nil {
-		t.Fatal(err)
+	// A stale page sends a made clip back as ready, with a forged result, in a batch with a new clip.
+	if err := c.Save([]shelf.Clip{{ID: "n", Lane: shelf.LaneLater, URL: "u"}, {ID: "a", Lane: shelf.LaneReady, URL: "u", ResultKind: "failed", ResultMessage: "forged"}}); err == nil {
+		t.Error("Save pulled a made clip back to ready")
 	}
 	all, _ := c.store.Load()
 	if len(all) != 1 {
-		t.Fatalf("clips = %+v", all)
+		t.Fatalf("clips = %+v, want only the made one (batch must not be half written)", all)
 	}
 	g := all[0]
-	if g.Lane != shelf.LaneReady || g.ResultKind != "done" || g.ResultMessage != "all good" ||
+	if g.Lane != shelf.LaneMade || g.ResultKind != "done" || g.ResultMessage != "all good" ||
 		len(g.Files) != 1 || g.MadeAt.IsZero() || g.CreatedAt.IsZero() {
-		t.Errorf("existing result not kept: %+v", g)
+		t.Errorf("made clip changed: %+v", g)
+	}
+}
+
+func TestSaveKeepsCreatedTimeOfAnExistingRow(t *testing.T) {
+	c, _ := newTestCore(t)
+	c.Save([]shelf.Clip{{ID: "a", Lane: shelf.LaneLater, URL: "u"}})
+	before, _ := c.store.Load()
+	if err := c.Save([]shelf.Clip{{ID: "a", Lane: shelf.LaneReady, URL: "u", StartText: "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := c.store.Load()
+	if len(after) != 1 || after[0].Lane != shelf.LaneReady || after[0].StartText != "1" || !after[0].CreatedAt.Equal(before[0].CreatedAt) {
+		t.Errorf("before %+v, after %+v", before, after)
+	}
+}
+
+func TestIDsFromThePageCannotEscapeScratch(t *testing.T) {
+	c, _ := newTestCore(t)
+	dir := filepath.Dir(c.settingsPath)
+	for _, id := range []string{"..", ".", "a/b", `a\b`, "", "../keep"} {
+		if err := c.Save([]shelf.Clip{{ID: id, Lane: shelf.LaneReady, URL: "u"}}); err == nil {
+			t.Errorf("Save accepted ID %q", id)
+		}
+		c.Remove(id)
+	}
+	for _, f := range []string{"settings.json", "shelf.db"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("%s did not survive: %v", f, err)
+		}
+	}
+	if all, _ := c.store.Load(); len(all) != 0 {
+		t.Errorf("clips = %+v", all)
+	}
+}
+
+func TestShutdownClosesTheStoreQuietly(t *testing.T) {
+	c, rec := newTestCore(t)
+	c.Shutdown(time.Second)
+	c.Shutdown(time.Second) // a second call is harmless
+	if err := c.store.Put(shelf.Clip{ID: "late", Lane: shelf.LaneLater}); err == nil {
+		t.Error("Put after Shutdown succeeded")
+	}
+	c.storeFailed(errors.New("late write")) // the path a late lookup would take
+	for _, e := range rec.all() {
+		if e.name == "shelf:notice" {
+			t.Error("sent a notice after Shutdown")
+		}
 	}
 }
 

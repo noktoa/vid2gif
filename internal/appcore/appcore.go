@@ -520,12 +520,15 @@ func (c *Core) Shutdown(wait time.Duration) {
 	c.mu.Lock()
 	done := c.done
 	c.mu.Unlock()
-	if done == nil {
-		return
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(wait):
+		}
 	}
-	select {
-	case <-done:
-	case <-time.After(wait):
+	// Checkpoints the WAL. Later writes fail quietly: send drops events now.
+	if err := c.store.Close(); err != nil {
+		c.Log.Printf("shelf: close: %v", err)
 	}
 }
 
