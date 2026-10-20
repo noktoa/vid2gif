@@ -97,7 +97,8 @@
       };
     },
     async Save(clips) {
-      if (clips.some((c) => c.lane !== "ready" && c.lane !== "later")) throw "Only ready and later clips are saved.";
+      const refuse = "That clip can't be saved there."; // like Go: not into Made, not over a made clip
+      if (clips.some((c) => (c.lane !== "ready" && c.lane !== "later") || shelf.find((x) => x.id === c.id)?.lane === "made")) throw refuse;
       for (const c of clips) {
         const i = shelf.findIndex((x) => x.id === c.id);
         if (i >= 0) shelf[i] = { ...shelf[i], ...c };
@@ -164,7 +165,11 @@
         for (let i = 1; i <= 10; i++) schedule(t + 400 + i * 120, () => emit("slip:status", samples.download(j.id, i / 10)));
         schedule(t + 1800, () => emit("slip:status", samples.gif(j.id)));
         for (let i = 1; i <= 5; i++) schedule(t + 2400 + i * 120, () => emit("slip:status", samples.mp4(j.id, i / 5)));
-        schedule(t + 3200, () => emit("slip:status", ends[n % ends.length](j.id)));
+        schedule(t + 3200, () => {
+          const c = shelf.find((x) => x.id === j.id);
+          if (c) c.lane = "made"; // Go stores a finished clip as made
+          emit("slip:status", ends[n % ends.length](j.id));
+        });
         t += 3400;
       });
       schedule(t, () => { timers = []; emit("run:finished", { stopped: false }); });

@@ -91,8 +91,11 @@ function render() {
 }
 
 const isBusy = (s) => ["queued", "making"].includes(s?.status?.kind); // already sent to Make
-// markable: a Later slip Mark ready would move (the same test as Mark all ready)
-const markable = (s) => s.lane === "later" && S.markReady([s], [s.id])[0].lane === "ready";
+// markable: a Later slip that can't clearly fail. Typed-but-unchecked times
+// count as fine, so Tab and a quick click reach Mark ready before the blur check
+// returns; markReady checks them first and leaves a bad one in Later.
+const markable = (s) => s.lane === "later" && !s.pending && !s.unavailable && !s.failed && !!s.startText.trim()
+  && (s.checked !== S.typed(s) || !s.timeMsg);
 let focusLane = null; // after a slip changes lane, focus its lane button in the new place
 
 function paintAll() {
@@ -122,7 +125,7 @@ function paintAll() {
   const made = S.inLane(slips, "made").length;
   $("n-made").textContent = String(made);
   $("sec-made").hidden = made === 0;
-  if (focusLane) { rows.get(focusLane)?.querySelector(".push button:not([hidden])")?.focus(); focusLane = null; }
+  if (focusLane) { rows.get(focusLane)?.querySelector(".push button:not([hidden]):not(:disabled)")?.focus(); focusLane = null; }
   $("empty").hidden = slips.length > 0;
   $("source").textContent = header || "Your shelf";
   $("count").textContent = String(shown.length);
@@ -225,8 +228,9 @@ function buildRow2(s, mode) {
     el("label", { class: "time" }, el("span", { class: "lab", text: "Stop" }), input("end", "end")),
     el("div", { class: "state" }),
     el("div", { class: "push" },
-      el("button", { class: "btn quiet to-later", type: "button", text: "Move to Later", onclick: () => setLane(s.id, "later") }),
-      el("button", { class: "btn to-ready", type: "button", text: "Mark ready", onclick: () => setLane(s.id, "ready") })),
+      el("button", { class: "btn quiet to-later", type: "button", text: "Move to Later", onclick: () => moveToLater(s.id) }),
+      el("button", { class: "btn to-ready", type: "button", text: "Mark ready", onclick: async () => { const [id] = await markReady([s.id]); if (id) { focusLane = id; render(); } } }),
+      el("button", { class: "btn quiet rm", type: "button", text: "Remove", onclick: () => remove(s.id) })),
     optionsBox(),
   ];
 }
@@ -241,14 +245,33 @@ function paintLane(li, s, title) {
   toReady.hidden = s.lane !== "later";
   toReady.disabled = !markable(s);
   toReady.setAttribute("aria-label", "Mark ready, " + title);
+  const rm = li.querySelector(".rm");
+  rm.hidden = isBusy(s);
+  rm.setAttribute("aria-label", "Remove " + title);
 }
 
-// setLane moves one slip between Ready and Later and saves it. Mark ready only
-// moves a slip that passes the check; moving to Later is refused mid-run.
-function setLane(id, lane) {
-  if (lane === "later" && isBusy(slips.find((s) => s.id === id))) return;
-  slips = lane === "ready" ? S.markReady(slips, [id]) : S.moveToLater(slips, id);
-  if (slips.find((s) => s.id === id)?.lane !== lane) return;
+// markReady moves the named Later slips that pass Make's check to Ready and
+// saves them. Typed times not yet checked are checked first, as Make does; a
+// slip that fails stays in Later with its time message showing. Returns the
+// ids that moved.
+async function markReady(ids) {
+  const field = (id) => slips.find((x) => x.id === id)?.badField || "start";
+  await Promise.all(ids.filter((id) => {
+    const s = slips.find((x) => x.id === id);
+    return s && markable(s) && s.checked !== S.typed(s);
+  }).map((id) => validate(id, field(id))));
+  const before = new Set(S.inLane(slips, "ready").map((s) => s.id));
+  slips = S.markReady(slips, ids);
+  const moved = S.inLane(slips, "ready").map((s) => s.id).filter((id) => !before.has(id));
+  persist(...moved);
+  render();
+  return moved;
+}
+
+// moveToLater parks a Ready slip and saves it; refused once it is on its way to Make.
+function moveToLater(id) {
+  if (isBusy(slips.find((s) => s.id === id))) return;
+  slips = S.moveToLater(slips, id);
   persist(id);
   focusLane = id;
   render();
@@ -298,6 +321,9 @@ const retryBtn = (id) => el("button", { class: "btn retry", type: "button", text
 
 function paintTimes(li, s, title) {
   const [start, end] = [li.querySelector("input.start"), li.querySelector("input.end")];
+  // once sent to Make the times are fixed: a late edit would save a stale "ready" clip
+  start.readOnly = end.readOnly = isBusy(s);
+  li.querySelector("select.join").disabled = isBusy(s);
   if (document.activeElement !== start && start.value !== s.startText) start.value = s.startText;
   if (document.activeElement !== end && end.value !== s.endText) end.value = s.endText;
   start.setAttribute("aria-label", "Start, " + title);
@@ -497,7 +523,7 @@ let saving = Promise.resolve();
 const queueSave = (call) => (saving = saving.then(call).catch((err) => notice(String(err?.message || err))));
 // Placeholders and failed lookups aren't saved (Go keeps a found video itself); neither is a made slip.
 function persist(...ids) {
-  const clips = slips.filter((s) => ids.includes(s.id) && s.lane !== "made" && !s.pending && !s.failed).map(toClip);
+  const clips = slips.filter((s) => ids.includes(s.id) && s.lane !== "made" && !s.pending && !s.failed && !isBusy(s)).map(toClip);
   if (clips.length) queueSave(() => App.Save(clips));
 }
 
@@ -663,11 +689,11 @@ makeBtn.addEventListener("click", async () => {
   App.Make(jobs);
 });
 
-$("mark-all").addEventListener("click", () => {
-  const before = S.inLane(slips, "ready").map((s) => s.id);
-  slips = S.markAllReady(slips);
-  persist(...S.inLane(slips, "ready").map((s) => s.id).filter((id) => !before.includes(id)));
-  render();
+// the button disables itself once nothing is left to move, so focus goes to the
+// Ready heading; the counts show what moved
+$("mark-all").addEventListener("click", async () => {
+  const moved = await markReady(S.inLane(slips, "later").map((s) => s.id));
+  if (moved.length) $("h-ready").focus();
 });
 
 on("shelf:notice", (m) => notice(m?.message || ""));

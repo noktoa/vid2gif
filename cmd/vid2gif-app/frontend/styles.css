@@ -149,7 +149,8 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .btn:disabled { cursor: default; background: var(--slip); border-style: dashed; color: var(--ink-2); }
 .slip.later { border-style: dashed; }
 .slip.later::before, .slip.later::after { border-style: solid; }
-.row2 .push { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.row2 .push { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 6px; align-items: center; }
+.sec-h h2:focus { outline: none; } /* focus lands here for Mark all ready; it isn't a control */
 
 /* a slip: card stock with a perforated stub; the notches are cut from the ground */
 .slip {
